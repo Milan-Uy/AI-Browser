@@ -1,0 +1,16 @@
+{
+  "name": "ai-browser",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "ext:dev": "pnpm --filter browser-extension dev",
+    "ext:build": "pnpm --filter browser-extension build",
+    "ext:test": "pnpm --filter browser-extension test",
+    "backend:dev": "cd packages/backend && uvicorn app.main:app --reload --port 8000"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}

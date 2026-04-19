@@ -6,6 +6,7 @@ import {
   type LLMAction,
 } from "@/lib/messaging";
 import { streamChat } from "@/lib/api-client";
+import { validateAction, createRateLimiter } from "@/lib/security";
 
 const BACKEND_URL = "http://localhost:8000/chat";
 
@@ -17,6 +18,8 @@ export default defineBackground(() => {
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch((err) => console.error("[bg] setPanelBehavior failed", err));
+
+  const rateLimiter = createRateLimiter(500);
 
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== "chat") return;
@@ -66,6 +69,25 @@ export default defineBackground(() => {
         )) {
           if (aborted) break;
           if (chunk.type === "action") {
+            const validation = validateAction(chunk.action);
+            if (!validation.ok) {
+              port.postMessage(
+                makeMessage("STREAM_CHUNK", {
+                  requestId,
+                  chunk: { type: "text", content: `\n[action rejected by policy: ${validation.message}]\n` },
+                }),
+              );
+              continue;
+            }
+            if (!(await rateLimiter.acquire())) {
+              port.postMessage(
+                makeMessage("STREAM_CHUNK", {
+                  requestId,
+                  chunk: { type: "text", content: "\n[rate limited — wait before next action]\n" },
+                }),
+              );
+              continue;
+            }
             const actionId = `${requestId}-${Math.random().toString(36).slice(2, 8)}`;
             const approved = await waitForApproval(actionId, chunk.action);
             if (!approved) {

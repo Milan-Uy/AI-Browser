@@ -30,3 +30,11 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
+
+# Python backend
+packages/backend/.venv/
+packages/backend/__pycache__/
+packages/backend/app/__pycache__/
+packages/backend/tests/__pycache__/
+packages/backend/*.egg-info/
+*.pyc

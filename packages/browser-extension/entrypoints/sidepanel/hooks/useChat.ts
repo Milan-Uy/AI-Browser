@@ -72,6 +72,7 @@ export function useChat() {
     }
     assistantIdRef.current = null;
     setPending(false);
+    setPendingAction(null);
   }, []);
 
   const send = useCallback(

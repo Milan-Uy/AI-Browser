@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isMessageOfKind, makeMessage, type AppMessage } from "@/lib/messaging";
+import { isMessageOfKind, makeMessage, type AppMessage, type LLMAction } from "@/lib/messaging";
 import type { ChatMessage } from "../components/MessageBubble";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+export interface PendingAction {
+  requestId: string;
+  action: LLMAction;
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const assistantIdRef = useRef<string | null>(null);
 
@@ -17,6 +23,10 @@ export function useChat() {
     portRef.current = port;
 
     port.onMessage.addListener((msg: AppMessage) => {
+      if (isMessageOfKind(msg, "CONFIRM_ACTION")) {
+        setPendingAction({ requestId: msg.payload.requestId, action: msg.payload.action });
+        return;
+      }
       if (!isMessageOfKind(msg, "STREAM_CHUNK")) return;
       const id = assistantIdRef.current;
       if (!id) return;
@@ -38,13 +48,30 @@ export function useChat() {
         setPending(false);
         assistantIdRef.current = null;
       }
-      // action chunks handled in Task 16
     });
 
     return () => {
       port.disconnect();
       portRef.current = null;
     };
+  }, []);
+
+  const decideAction = useCallback((requestId: string, approved: boolean) => {
+    setPendingAction(null);
+    portRef.current?.postMessage(makeMessage("ACTION_APPROVED", { requestId, approved }));
+  }, []);
+
+  const cancel = useCallback(() => {
+    const id = assistantIdRef.current;
+    if (id) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id ? { ...m, content: m.content + "\n[cancelled locally]", pending: false } : m,
+        ),
+      );
+    }
+    assistantIdRef.current = null;
+    setPending(false);
   }, []);
 
   const send = useCallback(
@@ -60,5 +87,5 @@ export function useChat() {
     [pending],
   );
 
-  return { messages, pending, send };
+  return { messages, pending, pendingAction, send, decideAction, cancel };
 }

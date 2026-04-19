@@ -19,7 +19,7 @@ export function ChatPanel() {
     e.preventDefault();
     const text = input;
     setInput("");
-    await send(text, includePage ? content : null);
+    await send(text, includePage);
   };
 
   return (

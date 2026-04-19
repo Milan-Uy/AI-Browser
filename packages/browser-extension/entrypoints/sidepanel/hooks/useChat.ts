@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { isMessageOfKind, makeMessage, type AppMessage } from "@/lib/messaging";
 import type { ChatMessage } from "../components/MessageBubble";
-import type { PageContent } from "@/lib/messaging";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -9,29 +9,53 @@ function uid() {
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState(false);
+  const portRef = useRef<chrome.runtime.Port | null>(null);
+  const assistantIdRef = useRef<string | null>(null);
 
-  const send = useCallback(
-    async (text: string, page: PageContent | null) => {
-      if (!text.trim() || pending) return;
-      const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
-      const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "", pending: true };
-      setMessages((prev) => [...prev, userMsg, assistantMsg]);
-      setPending(true);
+  useEffect(() => {
+    const port = chrome.runtime.connect({ name: "chat" });
+    portRef.current = port;
 
-      const suffix = page ? ` (saw ${page.elements.length} elements on "${page.title}")` : "";
-      const reply = `Echo: ${text}${suffix}`;
-      for (let i = 1; i <= reply.length; i++) {
-        await new Promise((r) => setTimeout(r, 10));
+    port.onMessage.addListener((msg: AppMessage) => {
+      if (!isMessageOfKind(msg, "STREAM_CHUNK")) return;
+      const id = assistantIdRef.current;
+      if (!id) return;
+      const { chunk } = msg.payload;
+      if (chunk.type === "text") {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, content: m.content + chunk.content } : m)),
+        );
+      } else if (chunk.type === "error") {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content: reply.slice(0, i) } : m,
+            m.id === id ? { ...m, content: m.content + `\n[error] ${chunk.message}`, pending: false } : m,
           ),
         );
+        setPending(false);
+        assistantIdRef.current = null;
+      } else if (chunk.type === "done") {
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pending: false } : m)));
+        setPending(false);
+        assistantIdRef.current = null;
       }
-      setMessages((prev) =>
-        prev.map((m) => (m.id === assistantMsg.id ? { ...m, pending: false } : m)),
-      );
-      setPending(false);
+      // action chunks handled in Task 16
+    });
+
+    return () => {
+      port.disconnect();
+      portRef.current = null;
+    };
+  }, []);
+
+  const send = useCallback(
+    async (text: string, includePage: boolean) => {
+      if (!text.trim() || pending || !portRef.current) return;
+      const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
+      const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "", pending: true };
+      assistantIdRef.current = assistantMsg.id;
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setPending(true);
+      portRef.current.postMessage(makeMessage("CHAT_MESSAGE", { text, includePage }));
     },
     [pending],
   );

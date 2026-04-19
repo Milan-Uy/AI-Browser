@@ -6,7 +6,7 @@ export default defineConfig({
     name: "AI Browser Agent",
     description: "Chat with an AI that can read and control the current page.",
     permissions: ["sidePanel", "tabs", "activeTab", "scripting", "storage"],
-    host_permissions: ["http://*/*", "https://*/*"],
+    host_permissions: ["http://localhost:8000/*", "http://*/*", "https://*/*"],
     action: {
       default_title: "Open AI side panel",
     },

@@ -27,3 +27,6 @@ Thumbs.db
 # Chrome extension
 *.crx
 *.pem
+
+# Git worktrees
+.worktrees/

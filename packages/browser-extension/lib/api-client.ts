@@ -10,21 +10,30 @@ export async function* streamChat(
   req: ChatRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamChunk, void, void> {
-  let res: Response;
-  try {
-    res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(req),
-      signal,
-    });
-  } catch (err) {
-    yield { type: "error", message: `fetch failed: ${(err as Error).message}` };
-    return;
+  let res: Response | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(req),
+        signal,
+      });
+      if (res.ok) break;
+      if (res.status < 500 || attempt === 1) break;
+      await new Promise((r) => setTimeout(r, 250));
+    } catch (err) {
+      if (attempt === 1) {
+        yield { type: "error", message: `fetch failed: ${(err as Error).message}` };
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
   }
 
-  if (!res.ok || !res.body) {
-    yield { type: "error", message: `HTTP ${res.status}` };
+  if (!res || !res.ok || !res.body) {
+    yield { type: "error", message: `HTTP ${res?.status ?? "unknown"}` };
     return;
   }
 

@@ -68,4 +68,22 @@ describe("api-client.streamChat", () => {
     }
     expect(got[0].type).toBe("error");
   });
+
+  it("retries once on 5xx before yielding error", async () => {
+    let callCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) return new Response("error", { status: 503 });
+      return new Response(
+        sseBody(['data: {"type":"done"}\n\n']),
+        { status: 200 },
+      );
+    });
+    const got: StreamChunk[] = [];
+    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
+      got.push(c);
+    }
+    expect(callCount).toBe(2);
+    expect(got).toEqual([{ type: "done" }]);
+  });
 });

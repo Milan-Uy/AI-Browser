@@ -20,6 +20,7 @@ out/
 *.swo
 *~
 .DS_Store
+CLAUDE.md
 
 # OS
 Thumbs.db

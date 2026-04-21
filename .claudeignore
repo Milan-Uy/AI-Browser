@@ -1,0 +1,12 @@
+node_modules/
+.output/
+dist/
+build/
+out/
+.worktrees/
+.wxt/
+*.png
+*.crx
+*.pem
+pnpm-lock.yaml
+CLAUDE.md

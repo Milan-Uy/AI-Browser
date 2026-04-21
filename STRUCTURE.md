@@ -7,6 +7,47 @@ This is a pnpm monorepo with two packages:
 - [`packages/browser-extension`](#packagesbrowser-extension) — Chrome extension (WXT + React + TypeScript)
 - [`packages/backend`](#packagesbackend) — FastAPI mock-LLM server (Python ≥3.11)
 
+## At a glance
+
+```
+AI-Browser/
+├── package.json              ← pnpm workspace root, ext:* / backend:* scripts
+├── pnpm-workspace.yaml
+├── README.md                 ← setup & quick start
+├── AI-Browser.md             ← architecture & data-flow
+├── STRUCTURE.md              ← (this file)
+│
+└── packages/
+    ├── browser-extension/    ← WXT + React + TS Chrome MV3 extension
+    │   ├── wxt.config.ts
+    │   ├── tsconfig.json
+    │   ├── vitest.config.ts
+    │   ├── entrypoints/
+    │   │   ├── background.ts         ← service-worker orchestrator
+    │   │   ├── content.ts            ← per-tab DOM bridge
+    │   │   └── sidepanel/            ← React chat UI
+    │   │       ├── main.tsx · App.tsx · index.html · style.css
+    │   │       ├── components/       ← ChatPanel, MessageBubble,
+    │   │       │                       ActionConfirmDialog, PageContextBadge
+    │   │       └── hooks/            ← useChat, usePageContent
+    │   ├── lib/
+    │   │   ├── messaging.ts          ← typed message protocol + shared models
+    │   │   ├── api-client.ts         ← streamChat() SSE client
+    │   │   ├── page-extractor.ts     ← extractPageContent()
+    │   │   ├── dom-actions.ts        ← executeAction() dispatcher
+    │   │   ├── security.ts           ← validateAction() + rate limiter
+    │   │   └── __tests__/            ← Vitest (one per lib module)
+    │   └── public/icons/
+    │
+    └── backend/              ← FastAPI mock-LLM server (Python ≥3.11)
+        ├── pyproject.toml
+        ├── app/
+        │   ├── main.py               ← create_app(), /healthz, POST /chat (SSE)
+        │   ├── schemas.py            ← Pydantic: ChatRequest, PageContent, Action
+        │   └── mock_llm.py           ← mock_stream() async generator
+        └── tests/test_chat.py
+```
+
 ---
 
 ## Repo root
@@ -109,6 +150,25 @@ FastAPI server exposing a streaming `/chat` endpoint. Currently a mock LLM; desi
 ---
 
 ## How the pieces talk
+
+```mermaid
+flowchart LR
+    subgraph Extension["packages/browser-extension"]
+        SP["Side Panel<br/>(React)<br/>useChat · usePageContent"]
+        BG["background.ts<br/>orchestrator SW"]
+        CS["content.ts<br/>(per-tab)<br/>page-extractor · dom-actions"]
+    end
+
+    subgraph Backend["packages/backend"]
+        API["FastAPI<br/>POST /chat<br/>(SSE)"]
+        LLM["mock_llm.py"]
+        API --> LLM
+    end
+
+    SP <-- "runtime.connect('chat')<br/>CHAT_MESSAGE · STREAM_CHUNK<br/>CONFIRM_ACTION · ACTION_APPROVED" --> BG
+    BG <-- "tabs.sendMessage<br/>GET_PAGE_CONTENT<br/>EXECUTE_ACTION" --> CS
+    BG <-- "fetch + SSE" --> API
+```
 
 - **Side panel ↔ background** — long-lived `chrome.runtime.connect({ name: "chat" })` port for chat traffic; plain `chrome.runtime.sendMessage` for one-shot requests like `GET_PAGE_CONTENT`.
 - **Background ↔ content script** — `chrome.tabs.sendMessage` request/response (`GET_PAGE_CONTENT`, `EXECUTE_ACTION`).

@@ -13,12 +13,11 @@ describe("messaging", () => {
   });
 
   it("narrows via isMessageOfKind", () => {
-    const m: AppMessage = makeMessage("STREAM_CHUNK", {
-      requestId: "r1",
-      chunk: { type: "text", content: "hello" },
+    const m: AppMessage = makeMessage("AGENT_UPDATE", {
+      update: { turn: 1, status: "running", explanation: "hi" },
     });
-    if (isMessageOfKind(m, "STREAM_CHUNK")) {
-      expect(m.payload.chunk.type).toBe("text");
+    if (isMessageOfKind(m, "AGENT_UPDATE")) {
+      expect(m.payload.update.turn).toBe(1);
     } else {
       throw new Error("should have narrowed");
     }
@@ -26,6 +25,15 @@ describe("messaging", () => {
 
   it("rejects a non-matching kind", () => {
     const m: AppMessage = makeMessage("CHAT_MESSAGE", { text: "hi", includePage: true });
-    expect(isMessageOfKind(m, "STREAM_CHUNK")).toBe(false);
+    expect(isMessageOfKind(m, "AGENT_UPDATE")).toBe(false);
+  });
+
+  it("builds CONFIRM_STEP with a Step payload", () => {
+    const m = makeMessage("CONFIRM_STEP", {
+      requestId: "r1",
+      step: { stepNumber: 1, action: "click", id: 3, name: "Submit" },
+    });
+    expect(m.payload.step.action).toBe("click");
+    expect(m.payload.step.id).toBe(3);
   });
 });

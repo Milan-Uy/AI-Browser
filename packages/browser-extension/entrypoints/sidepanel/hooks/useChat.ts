@@ -1,52 +1,64 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isMessageOfKind, makeMessage, type AppMessage, type LLMAction } from "@/lib/messaging";
+import {
+  isMessageOfKind,
+  makeMessage,
+  type AppMessage,
+  type Step,
+} from "@/lib/messaging";
 import type { ChatMessage } from "../components/MessageBubble";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export interface PendingAction {
+export interface PendingStep {
   requestId: string;
-  action: LLMAction;
+  step: Step;
 }
 
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState(false);
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [pendingStep, setPendingStep] = useState<PendingStep | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
-  const assistantIdRef = useRef<string | null>(null);
+
+  const addAssistant = useCallback((content: string) => {
+    setMessages((prev) => [...prev, { id: uid(), role: "assistant", content }]);
+  }, []);
 
   useEffect(() => {
     const port = chrome.runtime.connect({ name: "chat" });
     portRef.current = port;
 
     port.onMessage.addListener((msg: AppMessage) => {
-      if (isMessageOfKind(msg, "CONFIRM_ACTION")) {
-        setPendingAction({ requestId: msg.payload.requestId, action: msg.payload.action });
+      if (isMessageOfKind(msg, "CONFIRM_STEP")) {
+        setPendingStep({ requestId: msg.payload.requestId, step: msg.payload.step });
         return;
       }
-      if (!isMessageOfKind(msg, "STREAM_CHUNK")) return;
-      const id = assistantIdRef.current;
-      if (!id) return;
-      const { chunk } = msg.payload;
-      if (chunk.type === "text") {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, content: m.content + chunk.content } : m)),
-        );
-      } else if (chunk.type === "error") {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === id ? { ...m, content: m.content + `\n[error] ${chunk.message}`, pending: false } : m,
-          ),
-        );
+      if (!isMessageOfKind(msg, "AGENT_UPDATE")) return;
+      const { update } = msg.payload;
+
+      if (update.explanation) {
+        addAssistant(`Turn ${update.turn}: ${update.explanation}`);
+      }
+      if (update.steps?.length) {
+        const plan = update.steps
+          .map((s) => `  ${s.stepNumber}. ${s.action}${s.name ? ` "${s.name}"` : ""}${s.value ? ` = "${s.value}"` : ""}`)
+          .join("\n");
+        addAssistant(`Planned steps:\n${plan}`);
+      }
+      if (update.stepResults?.length) {
+        const lines = update.stepResults
+          .map((r) => `  ${r.stepNumber}: ${r.success ? "✓" : "✗"}${r.error ? ` (${r.error})` : ""}`)
+          .join("\n");
+        addAssistant(`Batch result:\n${lines}`);
+      }
+      if (update.error) {
+        addAssistant(`[error] ${update.error}`);
+      }
+      if (update.status === "completed" || update.status === "error") {
         setPending(false);
-        assistantIdRef.current = null;
-      } else if (chunk.type === "done") {
-        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, pending: false } : m)));
-        setPending(false);
-        assistantIdRef.current = null;
+        setPendingStep(null);
       }
     });
 
@@ -54,39 +66,28 @@ export function useChat() {
       port.disconnect();
       portRef.current = null;
     };
-  }, []);
+  }, [addAssistant]);
 
-  const decideAction = useCallback((requestId: string, approved: boolean) => {
-    setPendingAction(null);
-    portRef.current?.postMessage(makeMessage("ACTION_APPROVED", { requestId, approved }));
+  const decideStep = useCallback((requestId: string, approved: boolean) => {
+    setPendingStep(null);
+    portRef.current?.postMessage(makeMessage("STEP_APPROVED", { requestId, approved }));
   }, []);
 
   const cancel = useCallback(() => {
-    const id = assistantIdRef.current;
-    if (id) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id ? { ...m, content: m.content + "\n[cancelled locally]", pending: false } : m,
-        ),
-      );
-    }
-    assistantIdRef.current = null;
+    addAssistant("[cancelled locally]");
     setPending(false);
-    setPendingAction(null);
-  }, []);
+    setPendingStep(null);
+  }, [addAssistant]);
 
   const send = useCallback(
     async (text: string, includePage: boolean) => {
       if (!text.trim() || pending || !portRef.current) return;
-      const userMsg: ChatMessage = { id: uid(), role: "user", content: text };
-      const assistantMsg: ChatMessage = { id: uid(), role: "assistant", content: "", pending: true };
-      assistantIdRef.current = assistantMsg.id;
-      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setMessages((prev) => [...prev, { id: uid(), role: "user", content: text }]);
       setPending(true);
       portRef.current.postMessage(makeMessage("CHAT_MESSAGE", { text, includePage }));
     },
     [pending],
   );
 
-  return { messages, pending, pendingAction, send, decideAction, cancel };
+  return { messages, pending, pendingStep, send, decideStep, cancel };
 }

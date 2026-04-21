@@ -1,46 +1,137 @@
-export interface InteractiveElement {
-  selector: string;
-  tag: string;
-  text: string;
-  type?: string;
-  placeholder?: string;
+export const INTERACTIVE_AX_ROLES = [
+  "button",
+  "link",
+  "textbox",
+  "combobox",
+  "checkbox",
+  "radio",
+  "menuitem",
+  "tab",
+  "switch",
+  "slider",
+  "searchbox",
+  "listbox",
+  "option",
+  "spinbutton",
+] as const;
+export type InteractiveRole = (typeof INTERACTIVE_AX_ROLES)[number];
+
+export interface ElementBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
-export interface PageContent {
-  url: string;
+export interface ElementState {
+  disabled?: boolean;
+  checked?: boolean;
+  value?: string;
+  focused?: boolean;
+  expanded?: boolean;
+  haspopup?: string;
+}
+
+export interface BrowserElementData {
+  role: string;
+  id: number;
+  name: string;
+  tagName: string;
+  bounds: ElementBounds;
+  state?: ElementState;
+  [key: string]: unknown;
+}
+
+export interface InteractiveElementsMap {
+  [role: string]: BrowserElementData[];
+}
+
+export interface Tab {
+  id: number;
   title: string;
-  text: string;
-  selection?: string;
-  elements: InteractiveElement[];
+  url?: string;
 }
 
-export type LLMAction =
-  | { kind: "click"; selector: string }
-  | { kind: "fill"; selector: string; value: string }
-  | { kind: "scroll"; selector?: string; direction?: "up" | "down" | "top" | "bottom"; amount?: number }
-  | { kind: "navigate"; url: string }
-  | { kind: "select"; selector: string; value: string };
+export interface PageState {
+  interactiveElements: InteractiveElementsMap;
+  interactiveElementsString: string;
+  tab: Tab;
+  timestamp: string;
+}
 
-export type StreamChunk =
-  | { type: "text"; content: string }
-  | { type: "action"; action: LLMAction }
-  | { type: "done" }
-  | { type: "error"; message: string };
+export type StepAction =
+  | "click"
+  | "type"
+  | "hover"
+  | "scroll"
+  | "waitForPageReady"
+  | "goBack"
+  | "goForward"
+  | "refresh"
+  | "navigate"
+  | "switchTab";
 
-export interface ActionResult {
+export interface Step {
+  stepNumber: number;
+  action: StepAction;
+  id: number;
+  name: string;
+  value?: string;
+  explanation?: string;
+}
+
+export interface AgentMessage {
+  completed: boolean;
+  explanation?: string;
+  steps?: Step[];
+  error?: string;
+}
+
+export interface StepFeedback {
+  stepNumber: number;
+  success: boolean;
+  error?: string;
+}
+
+export interface FeedbackMessage {
+  batchNumber: number;
+  success: boolean;
+  updatedPageState?: PageState;
+  stepResults?: StepFeedback[];
+  reason?: string;
+}
+
+export interface MessageToAgent {
+  userPrompt: string;
+  pageState?: PageState;
+  feedback?: FeedbackMessage;
+}
+
+export interface StepResult {
   ok: boolean;
   message?: string;
 }
 
+export type BatchStatus = "running" | "completed" | "error";
+
+export interface BatchUpdate {
+  turn: number;
+  status: BatchStatus;
+  explanation?: string;
+  steps?: Step[];
+  stepResults?: StepFeedback[];
+  error?: string;
+}
+
 type Payloads = {
-  GET_PAGE_CONTENT: void;
-  PAGE_CONTENT_RESULT: { content: PageContent };
+  GET_PAGE_STATE: void;
+  PAGE_STATE_RESULT: { state: PageState | null };
   CHAT_MESSAGE: { text: string; includePage: boolean };
-  STREAM_CHUNK: { requestId: string; chunk: StreamChunk };
-  CONFIRM_ACTION: { requestId: string; action: LLMAction };
-  ACTION_APPROVED: { requestId: string; approved: boolean };
-  EXECUTE_ACTION: { requestId: string; action: LLMAction };
-  EXECUTE_ACTION_RESULT: { requestId: string; result: ActionResult };
+  AGENT_UPDATE: { update: BatchUpdate };
+  CONFIRM_STEP: { requestId: string; step: Step };
+  STEP_APPROVED: { requestId: string; approved: boolean };
+  EXECUTE_STEP: { requestId: string; step: Step };
+  EXECUTE_STEP_RESULT: { requestId: string; result: StepResult };
 };
 
 export type MessageKind = keyof Payloads;
@@ -62,7 +153,7 @@ export function makeMessage<K extends MessageKind>(
 export function isMessageOfKind<K extends MessageKind>(
   m: AppMessage,
   kind: K,
-): m is Message<K> {
+): m is Extract<AppMessage, { kind: K }> {
   return m.kind === kind;
 }
 

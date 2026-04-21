@@ -1,10 +1,9 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sse_starlette.sse import EventSourceResponse
 
-from .mock_llm import mock_stream
-from .schemas import ChatRequest
+from .agent_llm import run_agent
+from .schemas import AgentMessage, MessageToAgent
 
 
 def create_app() -> FastAPI:
@@ -27,13 +26,9 @@ def create_app() -> FastAPI:
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.post("/chat")
-    async def chat(req: ChatRequest) -> EventSourceResponse:
-        async def event_gen():
-            async for chunk in mock_stream(req.message, req.page):
-                yield {"data": chunk}
-
-        return EventSourceResponse(event_gen())
+    @app.post("/agent", response_model=AgentMessage)
+    async def agent(req: MessageToAgent) -> AgentMessage:
+        return await run_agent(req)
 
     return app
 

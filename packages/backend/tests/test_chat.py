@@ -1,4 +1,3 @@
-import json
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
@@ -13,33 +12,54 @@ async def test_healthz() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_streams_text_and_done() -> None:
+async def test_agent_without_page_returns_completed() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
-        body = {"message": "hi", "page": None}
-        async with client.stream("POST", "/chat", json=body) as r:
-            assert r.status_code == 200
-            lines = [line async for line in r.aiter_lines()]
-    data_lines = [l[5:].strip() for l in lines if l.startswith("data:")]
-    parsed = [json.loads(x) for x in data_lines if x]
-    assert any(p["type"] == "text" for p in parsed)
-    assert parsed[-1]["type"] == "done"
+        r = await client.post("/agent", json={"userPrompt": "hi"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["completed"] is True
+    assert "explanation" in body
 
 
 @pytest.mark.asyncio
-async def test_chat_with_page_emits_action() -> None:
+async def test_agent_with_page_emits_click_step() -> None:
     page = {
-        "url": "https://example.com",
-        "title": "Example",
-        "text": "hello",
-        "elements": [
-            {"selector": "#go", "tag": "button", "text": "Go"},
-        ],
+        "interactiveElements": {
+            "button": [
+                {
+                    "id": 1,
+                    "role": "button",
+                    "name": "Go",
+                    "tagName": "button",
+                    "bounds": {"x": 0, "y": 0, "width": 50, "height": 20},
+                }
+            ]
+        },
+        "interactiveElementsString": "# button\n[1] button \"Go\"",
+        "tab": {"id": 1, "title": "Example", "url": "https://example.com"},
+        "timestamp": "2026-04-21T00:00:00Z",
     }
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
-        async with client.stream("POST", "/chat", json={"message": "click go", "page": page}) as r:
-            data_lines = [l[5:].strip() async for l in r.aiter_lines() if l.startswith("data:")]
-    parsed = [json.loads(x) for x in data_lines if x]
-    actions = [p for p in parsed if p.get("type") == "action"]
-    assert len(actions) == 1
-    assert actions[0]["action"]["kind"] == "click"
-    assert actions[0]["action"]["selector"] == "#go"
+        r = await client.post(
+            "/agent",
+            json={"userPrompt": "click go", "pageState": page},
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["completed"] is False
+    assert body["steps"][0]["action"] == "click"
+    assert body["steps"][0]["id"] == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_completes_after_successful_feedback() -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        r = await client.post(
+            "/agent",
+            json={
+                "userPrompt": "click go",
+                "feedback": {"batchNumber": 1, "success": True},
+            },
+        )
+    body = r.json()
+    assert body["completed"] is True

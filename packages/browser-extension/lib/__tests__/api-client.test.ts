@@ -1,113 +1,50 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { streamChat } from "../api-client";
-import type { StreamChunk } from "../messaging";
+import { callAgent } from "../api-client";
+import type { AgentMessage } from "../messaging";
 
-function sseBody(events: string[]): ReadableStream<Uint8Array> {
-  const enc = new TextEncoder();
-  return new ReadableStream({
-    start(ctrl) {
-      for (const ev of events) ctrl.enqueue(enc.encode(ev));
-      ctrl.close();
-    },
-  });
-}
-
-describe("api-client.streamChat", () => {
+describe("api-client.callAgent", () => {
   const origFetch = globalThis.fetch;
   beforeEach(() => {});
   afterEach(() => {
     globalThis.fetch = origFetch;
   });
 
-  it("parses multiple SSE chunks", async () => {
+  it("parses a well-formed AgentMessage response", async () => {
+    const body: AgentMessage = {
+      completed: false,
+      explanation: "clicking button",
+      steps: [{ stepNumber: 1, action: "click", id: 3, name: "Go" }],
+    };
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        sseBody([
-          'data: {"type":"text","content":"hi "}\n\n',
-          'data: {"type":"text","content":"there"}\n\n',
-          'data: {"type":"done"}\n\n',
-        ]),
-        { status: 200, headers: { "content-type": "text/event-stream" } },
-      ),
+      new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }),
     );
-    const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "hi", page: null })) {
-      got.push(c);
-    }
-    expect(got).toEqual([
-      { type: "text", content: "hi " },
-      { type: "text", content: "there" },
-      { type: "done" },
-    ]);
+    const got = await callAgent("http://x/agent", { userPrompt: "go" });
+    expect(got).toEqual(body);
   });
 
-  it("parses CRLF-separated events (as emitted by sse-starlette)", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        sseBody([
-          'data: {"type":"text","content":"thinking"}\r\n\r\n',
-          'data: {"type":"text","content":"about"}\r\n\r\n',
-          'data: {"type":"text","content":"test"}\r\n\r\n',
-          'data: {"type":"done"}\r\n\r\n',
-        ]),
-        { status: 200, headers: { "content-type": "text/event-stream" } },
-      ),
-    );
-    const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "test", page: null })) {
-      got.push(c);
-    }
-    expect(got).toEqual([
-      { type: "text", content: "thinking" },
-      { type: "text", content: "about" },
-      { type: "text", content: "test" },
-      { type: "done" },
-    ]);
-  });
-
-  it("handles events split across chunks", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        sseBody([
-          'data: {"type":"text",',
-          '"content":"split"}\n\n',
-          'data: {"type":"done"}\n\n',
-        ]),
-        { status: 200 },
-      ),
-    );
-    const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
-      got.push(c);
-    }
-    expect(got[0]).toEqual({ type: "text", content: "split" });
-    expect(got[1]).toEqual({ type: "done" });
-  });
-
-  it("emits an error chunk on non-2xx", async () => {
+  it("returns an error AgentMessage on non-2xx", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
-    const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
-      got.push(c);
-    }
-    expect(got[0].type).toBe("error");
+    const got = await callAgent("http://x/agent", { userPrompt: "x" });
+    expect(got.completed).toBe(true);
+    expect(got.error).toMatch(/HTTP 500/);
   });
 
-  it("retries once on 5xx before yielding error", async () => {
-    let callCount = 0;
+  it("retries once on 5xx before failing", async () => {
+    let calls = 0;
     globalThis.fetch = vi.fn().mockImplementation(async () => {
-      callCount++;
-      if (callCount === 1) return new Response("error", { status: 503 });
-      return new Response(
-        sseBody(['data: {"type":"done"}\n\n']),
-        { status: 200 },
-      );
+      calls++;
+      if (calls === 1) return new Response("", { status: 503 });
+      return new Response(JSON.stringify({ completed: true, explanation: "ok" }), { status: 200 });
     });
-    const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
-      got.push(c);
-    }
-    expect(callCount).toBe(2);
-    expect(got).toEqual([{ type: "done" }]);
+    const got = await callAgent("http://x/agent", { userPrompt: "x" });
+    expect(calls).toBe(2);
+    expect(got.completed).toBe(true);
+  });
+
+  it("surfaces malformed-JSON as an error AgentMessage", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("not-json", { status: 200 }));
+    const got = await callAgent("http://x/agent", { userPrompt: "x" });
+    expect(got.completed).toBe(true);
+    expect(got.error).toBeDefined();
   });
 });

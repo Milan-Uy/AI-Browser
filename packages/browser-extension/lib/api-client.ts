@@ -1,16 +1,12 @@
-import type { PageContent, StreamChunk } from "./messaging";
+import type { AgentMessage, MessageToAgent } from "./messaging";
 
-export interface ChatRequest {
-  message: string;
-  page: PageContent | null;
-}
-
-export async function* streamChat(
+export async function callAgent(
   endpoint: string,
-  req: ChatRequest,
+  req: MessageToAgent,
   signal?: AbortSignal,
-): AsyncGenerator<StreamChunk, void, void> {
+): Promise<AgentMessage> {
   let res: Response | null = null;
+  let lastErr: unknown = null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -24,54 +20,28 @@ export async function* streamChat(
       if (res.status < 500 || attempt === 1) break;
       await new Promise((r) => setTimeout(r, 250));
     } catch (err) {
+      lastErr = err;
       if (attempt === 1) {
-        yield { type: "error", message: `fetch failed: ${(err as Error).message}` };
-        return;
+        return { completed: true, error: `fetch failed: ${(err as Error).message}` };
       }
       await new Promise((r) => setTimeout(r, 250));
     }
   }
 
-  if (!res || !res.ok || !res.body) {
-    yield { type: "error", message: `HTTP ${res?.status ?? "unknown"}` };
-    return;
+  if (!res) {
+    return { completed: true, error: `fetch failed: ${(lastErr as Error)?.message ?? "unknown"}` };
+  }
+  if (!res.ok) {
+    return { completed: true, error: `HTTP ${res.status}` };
   }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-
-    let sep: number;
-    while ((sep = buf.indexOf("\n\n")) !== -1) {
-      const raw = buf.slice(0, sep);
-      buf = buf.slice(sep + 2);
-      const chunk = parseSseEvent(raw);
-      if (chunk) yield chunk;
-    }
-  }
-  buf += decoder.decode().replace(/\r\n/g, "\n");
-  if (buf.trim()) {
-    const chunk = parseSseEvent(buf);
-    if (chunk) yield chunk;
-  }
-}
-
-function parseSseEvent(block: string): StreamChunk | null {
-  const lines = block.split("\n");
-  const data = lines
-    .filter((l) => l.startsWith("data:"))
-    .map((l) => l.slice(5).trim())
-    .join("\n");
-  if (!data) return null;
   try {
-    const parsed = JSON.parse(data) as StreamChunk;
-    return parsed;
-  } catch {
-    return { type: "error", message: `bad SSE payload: ${data.slice(0, 120)}` };
+    const data = (await res.json()) as AgentMessage;
+    if (typeof data !== "object" || data === null || typeof data.completed !== "boolean") {
+      return { completed: true, error: "malformed AgentMessage" };
+    }
+    return data;
+  } catch (err) {
+    return { completed: true, error: `bad JSON: ${(err as Error).message}` };
   }
 }

@@ -1,23 +1,19 @@
-import type { LLMAction } from "./messaging";
+import type { Step } from "./messaging";
 
 const ALLOWED_SCHEMES = new Set(["https:", "http:"]);
-const FORBIDDEN_SELECTOR_PATTERNS = [
-  /chrome-extension:\/\//i,
-  /chrome:\/\//i,
-  /^iframe\[src\^="https?:\/\/[^"]+"\]/i,
-];
 
 export interface ValidationResult {
   ok: boolean;
   message?: string;
 }
 
-export function validateAction(action: LLMAction): ValidationResult {
-  switch (action.kind) {
+export function validateStep(step: Step): ValidationResult {
+  switch (step.action) {
     case "navigate": {
+      const url = step.value ?? "";
       let parsed: URL;
       try {
-        parsed = new URL(action.url);
+        parsed = new URL(url);
       } catch {
         return { ok: false, message: "invalid URL" };
       }
@@ -27,19 +23,20 @@ export function validateAction(action: LLMAction): ValidationResult {
       return { ok: true };
     }
     case "click":
-    case "fill":
-    case "select":
-    case "scroll": {
-      const sel = "selector" in action ? action.selector : undefined;
-      if (sel) {
-        for (const pat of FORBIDDEN_SELECTOR_PATTERNS) {
-          if (pat.test(sel)) return { ok: false, message: `selector blocked: ${sel}` };
-        }
-      }
+    case "hover":
+    case "type":
+    case "scroll":
+    case "waitForPageReady":
+    case "goBack":
+    case "goForward":
+    case "refresh":
+    case "switchTab":
       return { ok: true };
+    default: {
+      const _exhaustive: never = step.action;
+      void _exhaustive;
+      return { ok: false, message: `unknown action: ${String(step.action)}` };
     }
-    default:
-      return { ok: true };
   }
 }
 

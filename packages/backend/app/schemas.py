@@ -1,55 +1,153 @@
-from typing import Literal, Optional, List, Union
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class InteractiveElement(BaseModel):
-    selector: str
-    tag: str
-    text: str
-    type: Optional[str] = None
-    placeholder: Optional[str] = None
+INTERACTIVE_AX_ROLES = (
+    "button",
+    "link",
+    "textbox",
+    "combobox",
+    "checkbox",
+    "radio",
+    "menuitem",
+    "tab",
+    "switch",
+    "slider",
+    "searchbox",
+    "listbox",
+    "option",
+    "spinbutton",
+)
+
+InteractiveRole = Literal[
+    "button",
+    "link",
+    "textbox",
+    "combobox",
+    "checkbox",
+    "radio",
+    "menuitem",
+    "tab",
+    "switch",
+    "slider",
+    "searchbox",
+    "listbox",
+    "option",
+    "spinbutton",
+]
+
+StepAction = Literal[
+    "click",
+    "type",
+    "hover",
+    "scroll",
+    "waitForPageReady",
+    "goBack",
+    "goForward",
+    "refresh",
+    "navigate",
+    "switchTab",
+]
 
 
-class PageContent(BaseModel):
-    url: str
+class ElementBounds(BaseModel):
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+class ElementState(BaseModel):
+    disabled: Optional[bool] = None
+    checked: Optional[bool] = None
+    value: Optional[str] = None
+    focused: Optional[bool] = None
+    expanded: Optional[bool] = None
+    haspopup: Optional[str] = None
+
+
+class BrowserElementData(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: int
+    role: str
+    name: str
+    tagName: str
+    bounds: ElementBounds
+    state: Optional[ElementState] = None
+
+
+class Tab(BaseModel):
+    id: int
     title: str
-    text: str
-    selection: Optional[str] = None
-    elements: List[InteractiveElement] = Field(default_factory=list)
+    url: Optional[str] = None
 
 
-class ChatRequest(BaseModel):
-    message: str
-    page: Optional[PageContent] = None
+class PageState(BaseModel):
+    interactiveElements: Dict[str, List[BrowserElementData]] = Field(default_factory=dict)
+    interactiveElementsString: str = ""
+    tab: Tab
+    timestamp: str
 
 
-class ClickAction(BaseModel):
-    kind: Literal["click"] = "click"
-    selector: str
+class Step(BaseModel):
+    stepNumber: int
+    action: StepAction
+    id: int
+    name: str
+    value: Optional[str] = None
+    explanation: Optional[str] = None
 
 
-class FillAction(BaseModel):
-    kind: Literal["fill"] = "fill"
-    selector: str
-    value: str
+class AgentMessage(BaseModel):
+    completed: bool
+    explanation: Optional[str] = None
+    steps: Optional[List[Step]] = None
+    error: Optional[str] = None
 
 
-class ScrollAction(BaseModel):
-    kind: Literal["scroll"] = "scroll"
-    selector: Optional[str] = None
-    direction: Optional[Literal["up", "down", "top", "bottom"]] = None
-    amount: Optional[int] = None
+class StepFeedback(BaseModel):
+    stepNumber: int
+    success: bool
+    error: Optional[str] = None
 
 
-class NavigateAction(BaseModel):
-    kind: Literal["navigate"] = "navigate"
-    url: str
+class FeedbackMessage(BaseModel):
+    batchNumber: int
+    success: bool
+    updatedPageState: Optional[PageState] = None
+    stepResults: Optional[List[StepFeedback]] = None
+    reason: Optional[str] = None
 
 
-class SelectAction(BaseModel):
-    kind: Literal["select"] = "select"
-    selector: str
-    value: str
+class MessageToAgent(BaseModel):
+    userPrompt: str
+    pageState: Optional[PageState] = None
+    feedback: Optional[FeedbackMessage] = None
 
 
-Action = Union[ClickAction, FillAction, ScrollAction, NavigateAction, SelectAction]
+def all_elements(state: Optional[PageState]) -> List[BrowserElementData]:
+    if not state:
+        return []
+    out: List[BrowserElementData] = []
+    for items in state.interactiveElements.values():
+        out.extend(items)
+    return out
+
+
+__all__ = [
+    "AgentMessage",
+    "BrowserElementData",
+    "ElementBounds",
+    "ElementState",
+    "FeedbackMessage",
+    "INTERACTIVE_AX_ROLES",
+    "InteractiveRole",
+    "MessageToAgent",
+    "PageState",
+    "Step",
+    "StepAction",
+    "StepFeedback",
+    "Tab",
+    "all_elements",
+]

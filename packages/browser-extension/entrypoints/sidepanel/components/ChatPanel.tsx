@@ -6,15 +6,15 @@ import { useChat } from "../hooks/useChat";
 import { usePageContent } from "../hooks/usePageContent";
 
 export function ChatPanel() {
-  const { messages, pending, pendingAction, send, decideAction, cancel } = useChat();
-  const { content, loading, refresh } = usePageContent();
+  const { messages, pending, pendingStep, send, decideStep, cancel } = useChat();
+  const { state, loading, refresh } = usePageContent();
   const [includePage, setIncludePage] = useState(true);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, pendingAction]);
+  }, [messages, pendingStep]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +31,7 @@ export function ChatPanel() {
         AI Browser Agent
       </header>
       <PageContextBadge
-        content={content}
+        state={state}
         loading={loading}
         included={includePage}
         onToggle={setIncludePage}
@@ -40,16 +40,16 @@ export function ChatPanel() {
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
         {messages.length === 0 && (
           <div className="text-slate-400 text-sm text-center mt-8">
-            Ask about this page or anything else.
+            Ask the agent to do something on this page.
           </div>
         )}
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}
-        {pendingAction && (
+        {pendingStep && (
           <ActionConfirmDialog
-            action={pendingAction.action}
-            onDecision={(approved) => decideAction(pendingAction.requestId, approved)}
+            step={pendingStep.step}
+            onDecision={(approved) => decideStep(pendingStep.requestId, approved)}
           />
         )}
       </div>

@@ -1,31 +1,35 @@
-import { extractPageContent } from "@/lib/page-extractor";
-import { executeAction } from "@/lib/dom-actions";
+import { extractPageState } from "@/lib/page-extractor";
+import { executeStep } from "@/lib/dom-actions";
 import { isMessageOfKind, makeMessage, type AppMessage } from "@/lib/messaging";
 
 export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_idle",
   main() {
+    let currentIdMap = new Map<number, HTMLElement>();
+
     chrome.runtime.onMessage.addListener((msg: AppMessage, _sender, sendResponse) => {
-      if (isMessageOfKind(msg, "GET_PAGE_CONTENT")) {
+      if (isMessageOfKind(msg, "GET_PAGE_STATE")) {
         try {
-          sendResponse(makeMessage("PAGE_CONTENT_RESULT", { content: extractPageContent() }));
+          const { pageState, idMap } = extractPageState();
+          currentIdMap = idMap;
+          sendResponse(makeMessage("PAGE_STATE_RESULT", { state: pageState }));
         } catch (err) {
           console.error("[cs] extract failed", err);
-          sendResponse(null);
+          sendResponse(makeMessage("PAGE_STATE_RESULT", { state: null }));
         }
         return true;
       }
-      if (isMessageOfKind(msg, "EXECUTE_ACTION")) {
+      if (isMessageOfKind(msg, "EXECUTE_STEP")) {
         (async () => {
           try {
-            const result = await executeAction(msg.payload.action);
+            const result = await executeStep(msg.payload.step, currentIdMap);
             sendResponse(
-              makeMessage("EXECUTE_ACTION_RESULT", { requestId: msg.payload.requestId, result }),
+              makeMessage("EXECUTE_STEP_RESULT", { requestId: msg.payload.requestId, result }),
             );
           } catch (err) {
             sendResponse(
-              makeMessage("EXECUTE_ACTION_RESULT", {
+              makeMessage("EXECUTE_STEP_RESULT", {
                 requestId: msg.payload.requestId,
                 result: { ok: false, message: (err as Error).message },
               }),

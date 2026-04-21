@@ -1,44 +1,56 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { executeAction } from "../dom-actions";
+import { executeStep } from "../dom-actions";
+import type { Step } from "../messaging";
 
-describe("dom-actions.executeAction", () => {
+function step(partial: Partial<Step> & { action: Step["action"]; id: number }): Step {
+  return { stepNumber: 1, name: "", ...partial };
+}
+
+describe("dom-actions.executeStep", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
   });
 
-  it("clicks an element and dispatches a MouseEvent", async () => {
+  it("clicks an element resolved via idMap", async () => {
     document.body.innerHTML = `<button id="b">Go</button>`;
     const btn = document.getElementById("b")!;
+    const idMap = new Map<number, HTMLElement>([[1, btn]]);
     const spy = vi.fn();
     btn.addEventListener("click", spy);
-    const res = await executeAction({ kind: "click", selector: "#b" });
+    const res = await executeStep(step({ action: "click", id: 1 }), idMap);
     expect(res.ok).toBe(true);
     expect(spy).toHaveBeenCalled();
   });
 
-  it("fills an input and dispatches input + change events", async () => {
+  it("types into an input and dispatches input+change events", async () => {
     document.body.innerHTML = `<input id="t" />`;
     const input = document.getElementById("t") as HTMLInputElement;
+    const idMap = new Map<number, HTMLElement>([[2, input]]);
     const events: string[] = [];
     input.addEventListener("input", () => events.push("input"));
     input.addEventListener("change", () => events.push("change"));
-    const res = await executeAction({ kind: "fill", selector: "#t", value: "hello" });
+    const res = await executeStep(step({ action: "type", id: 2, value: "hello" }), idMap);
     expect(res.ok).toBe(true);
     expect(input.value).toBe("hello");
     expect(events).toEqual(["input", "change"]);
   });
 
-  it("selects a value on a <select>", async () => {
-    document.body.innerHTML = `<select id="s"><option>a</option><option>b</option></select>`;
-    const sel = document.getElementById("s") as HTMLSelectElement;
-    const res = await executeAction({ kind: "select", selector: "#s", value: "b" });
-    expect(res.ok).toBe(true);
-    expect(sel.value).toBe("b");
+  it("returns not-ok for a stale id", async () => {
+    const res = await executeStep(step({ action: "click", id: 99 }), new Map());
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/stale/i);
   });
 
-  it("returns not-ok for a missing selector", async () => {
-    const res = await executeAction({ kind: "click", selector: "#missing" });
+  it("rejects switchTab (must be handled by background)", async () => {
+    const res = await executeStep(step({ action: "switchTab", id: 1 }), new Map());
     expect(res.ok).toBe(false);
-    expect(res.message).toMatch(/not found/i);
+  });
+
+  it("blocks invalid navigate URLs", async () => {
+    const res = await executeStep(
+      step({ action: "navigate", id: 0, value: "javascript:alert(1)" }),
+      new Map(),
+    );
+    expect(res.ok).toBe(false);
   });
 });

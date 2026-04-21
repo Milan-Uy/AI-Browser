@@ -41,6 +41,30 @@ describe("api-client.streamChat", () => {
     ]);
   });
 
+  it("parses CRLF-separated events (as emitted by sse-starlette)", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        sseBody([
+          'data: {"type":"text","content":"thinking"}\r\n\r\n',
+          'data: {"type":"text","content":"about"}\r\n\r\n',
+          'data: {"type":"text","content":"test"}\r\n\r\n',
+          'data: {"type":"done"}\r\n\r\n',
+        ]),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+    const got: StreamChunk[] = [];
+    for await (const c of streamChat("http://x/chat", { message: "test", page: null })) {
+      got.push(c);
+    }
+    expect(got).toEqual([
+      { type: "text", content: "thinking" },
+      { type: "text", content: "about" },
+      { type: "text", content: "test" },
+      { type: "done" },
+    ]);
+  });
+
   it("handles events split across chunks", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(

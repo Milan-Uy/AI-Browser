@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import List, Optional
 
@@ -11,6 +12,8 @@ from .schemas import (
     all_elements,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _is_denial_feedback(feedback: FeedbackMessage) -> bool:
     if feedback.reason == "denied_by_user":
@@ -23,9 +26,16 @@ def _is_denial_feedback(feedback: FeedbackMessage) -> bool:
 
 async def run_agent(msg: MessageToAgent) -> AgentMessage:
     backend = os.environ.get("AIB_LLM_BACKEND", "mock").lower()
+    logger.info("agent backend: %s", backend)
+    logger.info("agent request: %s", msg.model_dump_json())
+
     if backend == "mock":
-        return _mock_agent(msg)
-    return await _real_agent(msg)
+        response = _mock_agent(msg)
+    else:
+        response = await _real_agent(msg)
+
+    logger.info("agent response: %s", response.model_dump_json())
+    return response
 
 
 def _mock_agent(msg: MessageToAgent) -> AgentMessage:

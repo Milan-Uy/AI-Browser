@@ -1,3 +1,4 @@
+import logging
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +8,11 @@ from .schemas import AgentMessage, MessageToAgent
 
 
 def create_app() -> FastAPI:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
     app = FastAPI(title="AI Browser Backend")
 
     allow_origins = os.environ.get("AIB_ALLOW_ORIGINS", "").split(",")

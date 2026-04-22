@@ -10,6 +10,9 @@ export async function callAgent(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      if (attempt === 0) {
+        console.log("[callAgent] sending request to", endpoint, req);
+      }
       res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },

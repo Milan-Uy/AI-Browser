@@ -172,19 +172,35 @@ async function getActivePageState(): Promise<PageState | null> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (!tab?.id) return null;
-    const res = (await sendToTab(tab.id, "GET_PAGE_STATE", undefined)) as AppMessage | null;
-    if (res && isMessageOfKind(res, "PAGE_STATE_RESULT") && res.payload.state) {
-      const state = res.payload.state;
-      return {
-        ...state,
-        tab: {
-          id: tab.id,
-          title: tab.title ?? state.tab.title,
-          url: tab.url ?? state.tab.url,
-        },
-      };
+
+    const queryTab = async () => {
+      const res = (await sendToTab(tab.id!, "GET_PAGE_STATE", undefined)) as AppMessage | null;
+      if (res && isMessageOfKind(res, "PAGE_STATE_RESULT") && res.payload.state) {
+        const state = res.payload.state;
+        return {
+          ...state,
+          tab: {
+            id: tab.id!,
+            title: tab.title ?? state.tab.title,
+            url: tab.url ?? state.tab.url,
+          },
+        };
+      }
+      return null;
+    };
+
+    try {
+      return await queryTab();
+    } catch (err) {
+      if (!(err as Error).message?.toLowerCase().includes("receiving end does not exist")) throw err;
+      // Content script not yet running on this tab (opened before extension loaded).
+      // Inject it now and retry once.
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ["content-scripts/content.js"],
+      });
+      return await queryTab();
     }
-    return null;
   } catch (err) {
     console.error("[bg] getActivePageState failed", err);
     return null;

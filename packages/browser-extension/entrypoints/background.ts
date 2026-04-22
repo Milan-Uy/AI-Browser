@@ -63,6 +63,11 @@ export default defineBackground(() => {
       const userPrompt = msg.payload.text;
       const includePage = msg.payload.includePage;
 
+      if (userPrompt.trim().toLowerCase() === "login") {
+        await runLoginShortcut(postUpdate);
+        return;
+      }
+
       try {
         let pageState: PageState | undefined = includePage
           ? (await getActivePageState()) ?? undefined
@@ -205,6 +210,68 @@ async function getActivePageState(): Promise<PageState | null> {
     console.error("[bg] getActivePageState failed", err);
     return null;
   }
+}
+
+async function runLoginShortcut(postUpdate: (u: BatchUpdate) => void) {
+  const pageState = await getActivePageState();
+  if (!pageState) {
+    postUpdate({ turn: 1, status: "error", error: "no active page" });
+    return;
+  }
+
+  const textboxes = pageState.interactiveElements.textbox ?? [];
+  const buttons = pageState.interactiveElements.button ?? [];
+
+  const userField = textboxes.find((e) => /user|id|email|login/i.test(e.name));
+  const passField = textboxes.find(
+    (e) => e !== userField && /pass|pwd/i.test(e.name),
+  );
+  const signInBtn = buttons.find((e) => /sign\s*in|log\s*in|submit/i.test(e.name));
+
+  const missing: string[] = [];
+  if (!userField) missing.push("user-id field");
+  if (!passField) missing.push("password field");
+  if (!signInBtn) missing.push("sign-in button");
+  if (missing.length) {
+    postUpdate({
+      turn: 1,
+      status: "error",
+      error: `login shortcut: could not find ${missing.join(", ")}`,
+    });
+    return;
+  }
+
+  const steps: Step[] = [
+    { stepNumber: 1, action: "type", id: userField!.id, name: userField!.name, value: "test" },
+    { stepNumber: 2, action: "type", id: passField!.id, name: passField!.name, value: "test" },
+    { stepNumber: 3, action: "click", id: signInBtn!.id, name: signInBtn!.name },
+  ];
+
+  postUpdate({
+    turn: 1,
+    status: "running",
+    explanation: "Hardcoded login shortcut",
+    steps,
+  });
+
+  const stepResults: StepFeedback[] = [];
+  for (const step of steps) {
+    const result = await dispatchStep(step);
+    stepResults.push({
+      stepNumber: step.stepNumber,
+      success: result.ok,
+      error: result.ok ? undefined : result.message,
+    });
+    if (!result.ok) break;
+  }
+
+  const allOk = stepResults.every((r) => r.success);
+  postUpdate({
+    turn: 1,
+    status: allOk ? "completed" : "error",
+    stepResults,
+    explanation: allOk ? "Login completed" : "Login shortcut failed",
+  });
 }
 
 async function dispatchStep(step: Step): Promise<{ ok: boolean; message?: string }> {

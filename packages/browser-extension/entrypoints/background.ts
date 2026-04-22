@@ -111,8 +111,15 @@ export default defineBackground(() => {
             const approved = await waitForApproval(actionId, step);
             if (!approved) {
               stepResults.push({ stepNumber: step.stepNumber, success: false, error: "denied by user" });
-              batchOk = false;
-              break;
+              if (!aborted) {
+                postUpdate({
+                  turn,
+                  status: "completed",
+                  explanation: `Stopped — you denied step ${step.stepNumber}.`,
+                  stepResults,
+                });
+              }
+              return;
             }
 
             const result = await dispatchStep(step);

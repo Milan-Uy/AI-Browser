@@ -4,11 +4,21 @@ from typing import List, Optional
 from .schemas import (
     AgentMessage,
     BrowserElementData,
+    FeedbackMessage,
     MessageToAgent,
     PageState,
     Step,
     all_elements,
 )
+
+
+def _is_denial_feedback(feedback: FeedbackMessage) -> bool:
+    if feedback.reason == "denied_by_user":
+        return True
+    for sf in feedback.stepResults or []:
+        if sf.error == "denied by user":
+            return True
+    return False
 
 
 async def run_agent(msg: MessageToAgent) -> AgentMessage:
@@ -19,6 +29,12 @@ async def run_agent(msg: MessageToAgent) -> AgentMessage:
 
 
 def _mock_agent(msg: MessageToAgent) -> AgentMessage:
+    if msg.feedback and _is_denial_feedback(msg.feedback):
+        return AgentMessage(
+            completed=True,
+            explanation="Stopped because a step was denied.",
+        )
+
     if msg.feedback and msg.feedback.success:
         return AgentMessage(
             completed=True,

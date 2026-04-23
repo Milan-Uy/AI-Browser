@@ -6,6 +6,13 @@ from typing import AsyncIterator, Optional
 from .schemas import PageContent
 
 
+_LOGIN_RE = re.compile(r"\b(log\s*in|sign\s*in)\b", re.I)
+
+
+def _is_login_message(message: str) -> bool:
+    return bool(_LOGIN_RE.search(message or ""))
+
+
 def _find_email_field(elements: list) -> Optional[str]:
     for e in elements:
         if e.type == "email":
@@ -37,11 +44,15 @@ async def mock_stream(message: str, page: Optional[PageContent], turn: int = 0) 
     elements = page.elements if page else []
 
     if turn == 0:
+        if not _is_login_message(message):
+            yield json.dumps({"type": "text", "content": "Type \"login\" to have me fill in the demo credentials. "})
+            yield json.dumps({"type": "done", "completed": True})
+            return
         selector = _find_email_field(elements)
         if selector:
             yield json.dumps({"type": "text", "content": "Filling in the email/username field. "})
             await asyncio.sleep(0.05)
-            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "<email>"}})
+            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "test"}})
             await asyncio.sleep(0.05)
             yield json.dumps({"type": "done", "completed": False})
         else:
@@ -53,7 +64,7 @@ async def mock_stream(message: str, page: Optional[PageContent], turn: int = 0) 
         if selector:
             yield json.dumps({"type": "text", "content": "Filling in the password field. "})
             await asyncio.sleep(0.05)
-            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "<password>"}})
+            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "test"}})
             await asyncio.sleep(0.05)
             yield json.dumps({"type": "done", "completed": False})
         else:

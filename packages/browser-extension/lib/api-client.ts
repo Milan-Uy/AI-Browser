@@ -1,8 +1,9 @@
-import type { PageContent, StreamChunk } from "./messaging";
+import type { PageContent, StreamChunk, TurnRecord } from "./messaging";
 
 export interface ChatRequest {
   message: string;
   page: PageContent | null;
+  history: TurnRecord[];
 }
 
 export async function* streamChat(

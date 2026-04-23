@@ -1,10 +1,17 @@
+import logging
 import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
-from .mock_llm import mock_stream
+from .llm import get_llm
 from .schemas import ChatRequest
+
+logging.basicConfig(
+    level=os.environ.get("AIB_LOG_LEVEL", "INFO"),
+    format="%(message)s",
+)
 
 
 def create_app() -> FastAPI:
@@ -29,8 +36,11 @@ def create_app() -> FastAPI:
 
     @app.post("/chat")
     async def chat(req: ChatRequest) -> EventSourceResponse:
+        llm = get_llm()
+
         async def event_gen():
-            async for chunk in mock_stream(req.message, req.page):
+            stream = await llm.stream(req.message, req.page, req.history)
+            async for chunk in stream:
                 yield {"data": chunk}
 
         return EventSourceResponse(event_gen())

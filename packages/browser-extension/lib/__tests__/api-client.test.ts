@@ -31,7 +31,7 @@ describe("api-client.streamChat", () => {
       ),
     );
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "hi", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "hi", page: null, history: [] })) {
       got.push(c);
     }
     expect(got).toEqual([
@@ -54,7 +54,7 @@ describe("api-client.streamChat", () => {
       ),
     );
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "test", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "test", page: null, history: [] })) {
       got.push(c);
     }
     expect(got).toEqual([
@@ -77,7 +77,7 @@ describe("api-client.streamChat", () => {
       ),
     );
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "x", page: null, history: [] })) {
       got.push(c);
     }
     expect(got[0]).toEqual({ type: "text", content: "split" });
@@ -87,10 +87,10 @@ describe("api-client.streamChat", () => {
   it("emits an error chunk on non-2xx", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "x", page: null, history: [] })) {
       got.push(c);
     }
-    expect(got[0].type).toBe("error");
+    expect(got[0]?.type).toBe("error");
   });
 
   it("retries once on 5xx before yielding error", async () => {
@@ -104,7 +104,7 @@ describe("api-client.streamChat", () => {
       );
     });
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "x", page: null, history: [] })) {
       got.push(c);
     }
     expect(callCount).toBe(2);

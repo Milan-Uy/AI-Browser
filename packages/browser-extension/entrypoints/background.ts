@@ -106,15 +106,7 @@ export default defineBackground(() => {
                 );
                 continue;
               }
-              if (!(await rateLimiter.acquire())) {
-                port.postMessage(
-                  makeMessage("STREAM_CHUNK", {
-                    requestId,
-                    chunk: { type: "text", content: "\n[rate limited — wait before next action]\n" },
-                  }),
-                );
-                continue;
-              }
+              await rateLimiter.acquire();
               const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
               if (!tab?.id) continue;
               const actionId = `${requestId}-${Math.random().toString(36).slice(2, 8)}`;

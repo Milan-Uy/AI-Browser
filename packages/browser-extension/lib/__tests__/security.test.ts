@@ -39,11 +39,20 @@ describe("security.validateAction", () => {
 
 describe("security.createRateLimiter", () => {
   beforeEach(() => vi.useFakeTimers());
-  it("enforces a cooldown between acquires", async () => {
+  it("delays back-to-back acquires by the minimum interval", async () => {
     const rl = createRateLimiter(500);
     expect(await rl.acquire()).toBe(true);
-    expect(await rl.acquire()).toBe(false);
-    vi.advanceTimersByTime(500);
-    expect(await rl.acquire()).toBe(true);
+
+    let secondResolved = false;
+    const second = rl.acquire().then((v) => {
+      secondResolved = true;
+      return v;
+    });
+
+    await vi.advanceTimersByTimeAsync(499);
+    expect(secondResolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await second).toBe(true);
   });
 });

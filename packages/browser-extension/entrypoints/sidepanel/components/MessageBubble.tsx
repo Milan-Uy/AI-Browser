@@ -13,10 +13,10 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
 
   const base = "rounded-lg px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words";
   const style = isSystem
-    ? `${base} bg-amber-50 text-amber-900 border border-amber-200 self-center max-w-full`
+    ? `${base} bg-amber-900/40 text-amber-200 border border-amber-700 self-center max-w-full`
     : isUser
       ? `${base} bg-indigo-600 text-white self-end max-w-[85%]`
-      : `${base} bg-slate-100 text-slate-900 self-start max-w-[85%]`;
+      : `${base} bg-slate-700 text-slate-100 self-start max-w-[85%]`;
 
   return (
     <div className={style}>

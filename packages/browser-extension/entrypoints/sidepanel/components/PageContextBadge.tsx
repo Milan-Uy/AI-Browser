@@ -10,7 +10,7 @@ interface Props {
 
 export function PageContextBadge({ content, loading, included, onToggle, onRefresh }: Props) {
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-200 bg-slate-50 text-xs">
+    <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-700 bg-slate-800 text-xs">
       <label className="flex items-center gap-1 cursor-pointer select-none">
         <input
           type="checkbox"
@@ -19,18 +19,18 @@ export function PageContextBadge({ content, loading, included, onToggle, onRefre
         />
         Include page
       </label>
-      <div className="flex-1 truncate text-slate-600" title={content?.url ?? ""}>
+      <div className="flex-1 truncate text-slate-300" title={content?.url ?? ""}>
         {loading ? "Reading page…" : content ? content.title || content.url : "No page"}
       </div>
       {content && (
-        <span className="text-slate-500" title="interactive elements">
+        <span className="text-slate-400" title="interactive elements">
           {content.elements.length} ⟋ {content.text.length}c
         </span>
       )}
       <button
         type="button"
         onClick={onRefresh}
-        className="text-indigo-600 hover:underline"
+        className="text-indigo-400 hover:underline"
         disabled={loading}
       >
         Refresh

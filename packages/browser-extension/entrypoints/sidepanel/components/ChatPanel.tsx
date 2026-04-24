@@ -26,8 +26,8 @@ export function ChatPanel() {
   const hasError = messages[messages.length - 1]?.content.includes("[error]");
 
   return (
-    <div className="h-full flex flex-col bg-white">
-      <header className="px-3 py-2 border-b border-slate-200 text-sm font-semibold text-slate-700">
+    <div className="h-full flex flex-col bg-slate-900">
+      <header className="px-3 py-2 border-b border-slate-700 text-sm font-semibold text-slate-100">
         AI Browser Agent
       </header>
       <PageContextBadge
@@ -37,7 +37,7 @@ export function ChatPanel() {
         onToggle={setIncludePage}
         onRefresh={refresh}
       />
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 bg-slate-900">
         {messages.length === 0 && (
           <div className="text-slate-400 text-sm text-center mt-8">
             Ask about this page or anything else.
@@ -54,13 +54,13 @@ export function ChatPanel() {
         )}
       </div>
       {hasError && (
-        <div className="px-3 py-1.5 text-xs bg-rose-50 text-rose-800 border-t border-rose-200">
+        <div className="px-3 py-1.5 text-xs bg-rose-900/40 text-rose-300 border-t border-rose-700">
           Something went wrong. Make sure the FastAPI server is running on :8000.
         </div>
       )}
-      <form onSubmit={onSubmit} className="border-t border-slate-200 p-2 flex gap-2">
+      <form onSubmit={onSubmit} className="border-t border-slate-700 p-2 flex gap-2 bg-slate-900">
         <input
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           placeholder="Type a message…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -70,7 +70,7 @@ export function ChatPanel() {
           <button
             type="button"
             onClick={cancel}
-            className="rounded-md bg-slate-200 text-slate-700 text-sm px-3 py-2"
+            className="rounded-md bg-slate-600 text-slate-200 text-sm px-3 py-2"
           >
             Cancel
           </button>

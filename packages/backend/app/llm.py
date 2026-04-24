@@ -88,10 +88,7 @@ class MockLLM:
 
 class GeminiLLM:
     name = "gemini"
-    _STREAM_URL = (
-        "https://generativelanguage.googleapis.com/v1beta/models"
-        "/gemini-2.0-flash:streamGenerateContent"
-    )
+    _BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
     async def stream(
         self,
@@ -107,6 +104,8 @@ class GeminiLLM:
                 "GEMINI_API_KEY is not set. "
                 "Add it to packages/backend/.env or export it in your shell."
             )
+        model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        url = f"{self._BASE_URL}/{model}:streamGenerateContent"
 
         turn = len(history)
         _log_request(self.name, turn, message, page, history)
@@ -173,12 +172,18 @@ class GeminiLLM:
             async with httpx.AsyncClient(verify=False, timeout=60.0) as client:
                 async with client.stream(
                     "POST",
-                    self._STREAM_URL,
+                    url,
                     params={"alt": "sse"},
                     headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
                     json=body,
                 ) as resp:
-                    resp.raise_for_status()
+                    if resp.status_code != 200:
+                        body_text = await resp.aread()
+                        error_detail = body_text.decode(errors="replace")
+                        logger.error(json.dumps({"event": "gemini_http_error", "status": resp.status_code, "body": error_detail}))
+                        yield json.dumps({"type": "text", "content": f"Gemini API error {resp.status_code}: {error_detail}"})
+                        yield json.dumps({"type": "done", "completed": True})
+                        return
                     async for raw in resp.aiter_lines():
                         if not raw.startswith("data: "):
                             continue

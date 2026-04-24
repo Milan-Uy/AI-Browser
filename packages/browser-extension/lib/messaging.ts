@@ -21,10 +21,15 @@ export type LLMAction =
   | { kind: "navigate"; url: string }
   | { kind: "select"; selector: string; value: string };
 
+export interface TurnRecord {
+  actions: LLMAction[];
+  page: PageContent | null;
+}
+
 export type StreamChunk =
   | { type: "text"; content: string }
   | { type: "action"; action: LLMAction }
-  | { type: "done" }
+  | { type: "done"; completed?: boolean }
   | { type: "error"; message: string };
 
 export interface ActionResult {
@@ -37,8 +42,8 @@ type Payloads = {
   PAGE_CONTENT_RESULT: { content: PageContent };
   CHAT_MESSAGE: { text: string; includePage: boolean };
   STREAM_CHUNK: { requestId: string; chunk: StreamChunk };
-  CONFIRM_ACTION: { requestId: string; action: LLMAction };
-  ACTION_APPROVED: { requestId: string; approved: boolean };
+  CONFIRM_RUN: { requestId: string; prompt: string };
+  RUN_APPROVED: { requestId: string; approved: boolean };
   EXECUTE_ACTION: { requestId: string; action: LLMAction };
   EXECUTE_ACTION_RESULT: { requestId: string; result: ActionResult };
 };

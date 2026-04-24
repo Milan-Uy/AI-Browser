@@ -18,11 +18,6 @@ class PageContent(BaseModel):
     elements: List[InteractiveElement] = Field(default_factory=list)
 
 
-class ChatRequest(BaseModel):
-    message: str
-    page: Optional[PageContent] = None
-
-
 class ClickAction(BaseModel):
     kind: Literal["click"] = "click"
     selector: str
@@ -53,3 +48,14 @@ class SelectAction(BaseModel):
 
 
 Action = Union[ClickAction, FillAction, ScrollAction, NavigateAction, SelectAction]
+
+
+class TurnRecord(BaseModel):
+    actions: List[Action] = Field(default_factory=list)
+    page: Optional[PageContent] = None
+
+
+class ChatRequest(BaseModel):
+    message: str
+    page: Optional[PageContent] = None
+    history: List[TurnRecord] = Field(default_factory=list)

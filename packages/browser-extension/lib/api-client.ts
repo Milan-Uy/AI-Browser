@@ -1,8 +1,9 @@
-import type { PageContent, StreamChunk } from "./messaging";
+import type { PageContent, StreamChunk, TurnRecord } from "./messaging";
 
 export interface ChatRequest {
   message: string;
   page: PageContent | null;
+  history: TurnRecord[];
 }
 
 export async function* streamChat(
@@ -44,7 +45,7 @@ export async function* streamChat(
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
 
     let sep: number;
     while ((sep = buf.indexOf("\n\n")) !== -1) {
@@ -54,7 +55,7 @@ export async function* streamChat(
       if (chunk) yield chunk;
     }
   }
-  buf += decoder.decode();
+  buf += decoder.decode().replace(/\r\n/g, "\n");
   if (buf.trim()) {
     const chunk = parseSseEvent(buf);
     if (chunk) yield chunk;
@@ -66,7 +67,7 @@ function parseSseEvent(block: string): StreamChunk | null {
   const data = lines
     .filter((l) => l.startsWith("data:"))
     .map((l) => l.slice(5).trim())
-    .join("");
+    .join("\n");
   if (!data) return null;
   try {
     const parsed = JSON.parse(data) as StreamChunk;

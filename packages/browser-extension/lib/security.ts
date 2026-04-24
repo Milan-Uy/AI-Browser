@@ -51,9 +51,11 @@ export function createRateLimiter(minIntervalMs: number): RateLimiter {
   let last = 0;
   return {
     async acquire() {
-      const now = Date.now();
-      if (now - last < minIntervalMs) return false;
-      last = now;
+      const elapsed = Date.now() - last;
+      if (elapsed < minIntervalMs) {
+        await new Promise((r) => setTimeout(r, minIntervalMs - elapsed));
+      }
+      last = Date.now();
       return true;
     },
   };

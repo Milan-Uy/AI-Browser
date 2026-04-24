@@ -31,12 +31,36 @@ describe("api-client.streamChat", () => {
       ),
     );
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "hi", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "hi", page: null, history: [] })) {
       got.push(c);
     }
     expect(got).toEqual([
       { type: "text", content: "hi " },
       { type: "text", content: "there" },
+      { type: "done" },
+    ]);
+  });
+
+  it("parses CRLF-separated events (as emitted by sse-starlette)", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        sseBody([
+          'data: {"type":"text","content":"thinking"}\r\n\r\n',
+          'data: {"type":"text","content":"about"}\r\n\r\n',
+          'data: {"type":"text","content":"test"}\r\n\r\n',
+          'data: {"type":"done"}\r\n\r\n',
+        ]),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+    const got: StreamChunk[] = [];
+    for await (const c of streamChat("http://x/chat", { message: "test", page: null, history: [] })) {
+      got.push(c);
+    }
+    expect(got).toEqual([
+      { type: "text", content: "thinking" },
+      { type: "text", content: "about" },
+      { type: "text", content: "test" },
       { type: "done" },
     ]);
   });
@@ -53,7 +77,7 @@ describe("api-client.streamChat", () => {
       ),
     );
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "x", page: null, history: [] })) {
       got.push(c);
     }
     expect(got[0]).toEqual({ type: "text", content: "split" });
@@ -63,10 +87,10 @@ describe("api-client.streamChat", () => {
   it("emits an error chunk on non-2xx", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "x", page: null, history: [] })) {
       got.push(c);
     }
-    expect(got[0].type).toBe("error");
+    expect(got[0]?.type).toBe("error");
   });
 
   it("retries once on 5xx before yielding error", async () => {
@@ -80,7 +104,7 @@ describe("api-client.streamChat", () => {
       );
     });
     const got: StreamChunk[] = [];
-    for await (const c of streamChat("http://x/chat", { message: "x", page: null })) {
+    for await (const c of streamChat("http://x/chat", { message: "x", page: null, history: [] })) {
       got.push(c);
     }
     expect(callCount).toBe(2);

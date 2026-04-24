@@ -2,6 +2,9 @@ import { defineConfig } from "wxt";
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
+  runner: {
+    disabled: true,
+  },
   manifest: {
     name: "AI Browser Agent",
     description: "Chat with an AI that can read and control the current page.",

@@ -95,7 +95,14 @@ class GeminiLLM:
         page: Optional[PageContent],
         history: List[TurnRecord],
     ) -> AsyncIterator[str]:
+        import certifi
         import google.generativeai as genai  # deferred: only needed when backend=gemini
+
+        # gRPC bundles its own BoringSSL and won't find system CAs in some environments;
+        # pointing these vars at certifi's bundle fixes certificate verification.
+        os.environ.setdefault("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", certifi.where())
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:

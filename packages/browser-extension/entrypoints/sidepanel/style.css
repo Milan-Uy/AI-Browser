@@ -3,4 +3,4 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { font-family: ui-sans-serif, system-ui, sans-serif; }
+body { font-family: ui-sans-serif, system-ui, sans-serif; background-color: #0f172a; color: #f1f5f9; }

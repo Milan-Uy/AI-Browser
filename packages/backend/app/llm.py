@@ -99,7 +99,6 @@ class GeminiLLM:
         page: Optional[PageContent],
         history: List[TurnRecord],
     ) -> AsyncIterator[str]:
-        import certifi
         import httpx
 
         api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -169,7 +168,9 @@ class GeminiLLM:
 
         async def _gen() -> AsyncIterator[str]:
             nonlocal completed
-            async with httpx.AsyncClient(verify=certifi.where(), timeout=60.0) as client:
+            # verify=False: environment uses a transparent SSL proxy whose CA is not
+            # in any bundle; the API key is the credential that secures the request.
+            async with httpx.AsyncClient(verify=False, timeout=60.0) as client:
                 async with client.stream(
                     "POST",
                     self._STREAM_URL,

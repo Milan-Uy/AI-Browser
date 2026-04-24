@@ -88,6 +88,10 @@ class MockLLM:
 
 class GeminiLLM:
     name = "gemini"
+    _STREAM_URL = (
+        "https://generativelanguage.googleapis.com/v1beta/models"
+        "/gemini-2.0-flash:streamGenerateContent"
+    )
 
     async def stream(
         self,
@@ -96,13 +100,7 @@ class GeminiLLM:
         history: List[TurnRecord],
     ) -> AsyncIterator[str]:
         import certifi
-        import google.generativeai as genai  # deferred: only needed when backend=gemini
-
-        # gRPC bundles its own BoringSSL and won't find system CAs in some environments;
-        # pointing these vars at certifi's bundle fixes certificate verification.
-        os.environ.setdefault("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", certifi.where())
-        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-        os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+        import httpx
 
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
@@ -110,7 +108,6 @@ class GeminiLLM:
                 "GEMINI_API_KEY is not set. "
                 "Add it to packages/backend/.env or export it in your shell."
             )
-        genai.configure(api_key=api_key)
 
         turn = len(history)
         _log_request(self.name, turn, message, page, history)
@@ -168,28 +165,49 @@ class GeminiLLM:
         prompt_lines += ["## Task", message]
         prompt = "\n".join(prompt_lines)
 
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
 
         async def _gen() -> AsyncIterator[str]:
             nonlocal completed
-            response = await model.generate_content_async(prompt, stream=True)
-            async for chunk in response:
-                chunk_text = chunk.text if chunk.text else ""
-                for line in chunk_text.splitlines(keepends=True):
-                    stripped = line.strip()
-                    if stripped.startswith("ACTION:"):
-                        action_json = stripped[len("ACTION:"):].strip()
+            async with httpx.AsyncClient(verify=certifi.where(), timeout=60.0) as client:
+                async with client.stream(
+                    "POST",
+                    self._STREAM_URL,
+                    params={"alt": "sse"},
+                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                    json=body,
+                ) as resp:
+                    resp.raise_for_status()
+                    async for raw in resp.aiter_lines():
+                        if not raw.startswith("data: "):
+                            continue
+                        payload = raw[6:]
+                        if payload == "[DONE]":
+                            break
                         try:
-                            action_obj = json.loads(action_json)
-                            actions.append(action_obj)
-                            yield json.dumps({"type": "action", "action": action_obj})
+                            data = json.loads(payload)
                         except json.JSONDecodeError:
-                            yield json.dumps({"type": "text", "content": line})
-                    elif stripped.upper().startswith("DONE:"):
-                        done_val = stripped[5:].strip().lower()
-                        completed = done_val == "true"
-                    elif line:
-                        yield json.dumps({"type": "text", "content": line})
+                            continue
+                        for candidate in data.get("candidates", []):
+                            for part in candidate.get("content", {}).get("parts", []):
+                                text = part.get("text", "")
+                                if not text:
+                                    continue
+                                for line in text.splitlines(keepends=True):
+                                    stripped = line.strip()
+                                    if stripped.startswith("ACTION:"):
+                                        action_str = stripped[len("ACTION:"):].strip()
+                                        try:
+                                            action_obj = json.loads(action_str)
+                                            actions.append(action_obj)
+                                            yield json.dumps({"type": "action", "action": action_obj})
+                                        except json.JSONDecodeError:
+                                            yield json.dumps({"type": "text", "content": line})
+                                    elif stripped.upper().startswith("DONE:"):
+                                        done_val = stripped[5:].strip().lower()
+                                        completed = done_val == "true"
+                                    elif line:
+                                        yield json.dumps({"type": "text", "content": line})
             yield json.dumps({"type": "done", "completed": completed})
             _log_response(self.name, turn, actions, completed)
 

@@ -95,12 +95,98 @@ class GeminiLLM:
         page: Optional[PageContent],
         history: List[TurnRecord],
     ) -> AsyncIterator[str]:
-        # TODO: implement Gemini API call here.
-        # Set AIB_LLM_BACKEND=gemini and GEMINI_API_KEY to enable.
-        raise NotImplementedError(
-            "GeminiLLM is not yet implemented. "
-            "Add your Gemini API call in packages/backend/app/llm.py GeminiLLM.stream()"
-        )
+        import google.generativeai as genai  # deferred: only needed when backend=gemini
+
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            raise ValueError(
+                "GEMINI_API_KEY is not set. "
+                "Add it to packages/backend/.env or export it in your shell."
+            )
+        genai.configure(api_key=api_key)
+
+        turn = len(history)
+        _log_request(self.name, turn, message, page, history)
+        actions: list = []
+        completed = False
+
+        prompt_lines: list[str] = [
+            "You are an AI browser assistant. The user gives you a task and you "
+            "either answer it directly or perform browser actions to accomplish it.",
+            "",
+            "To perform a browser action, output a line in this exact format (JSON on one line):",
+            '  ACTION: {"kind": "click", "selector": "#submit"}',
+            '  ACTION: {"kind": "fill", "selector": "#email", "value": "user@example.com"}',
+            '  ACTION: {"kind": "navigate", "url": "https://example.com"}',
+            '  ACTION: {"kind": "scroll", "direction": "down", "amount": 300}',
+            '  ACTION: {"kind": "select", "selector": "#dropdown", "value": "option1"}',
+            "",
+            "At the very end of your response, output exactly one of these lines:",
+            "  DONE: true   (task is complete — no further turns needed)",
+            "  DONE: false  (more turns are needed to finish the task)",
+            "",
+        ]
+
+        if page:
+            prompt_lines += [
+                "## Current page",
+                f"URL: {page.url}",
+                f"Title: {page.title}",
+            ]
+            if page.selection:
+                prompt_lines.append(f"Selected text: {page.selection}")
+            page_text = page.text[:3000] + ("\n[...truncated...]" if len(page.text) > 3000 else "")
+            prompt_lines += [f"Page text:\n{page_text}", ""]
+            if page.elements:
+                prompt_lines.append("Interactive elements (use these selectors for actions):")
+                for el in page.elements:
+                    parts = [f"selector={el.selector!r}", f"tag={el.tag!r}"]
+                    if el.type:
+                        parts.append(f"type={el.type!r}")
+                    if el.placeholder:
+                        parts.append(f"placeholder={el.placeholder!r}")
+                    if el.text:
+                        parts.append(f"text={el.text!r}")
+                    prompt_lines.append("  - " + ", ".join(parts))
+                prompt_lines.append("")
+
+        if history:
+            prompt_lines.append("## Prior turns")
+            for i, rec in enumerate(history):
+                prompt_lines.append(f"Turn {i}:")
+                for act in rec.actions:
+                    prompt_lines.append(f"  Action taken: {json.dumps(act.model_dump())}")
+            prompt_lines.append("")
+
+        prompt_lines += ["## Task", message]
+        prompt = "\n".join(prompt_lines)
+
+        model = genai.GenerativeModel("gemini-2.0-flash")
+
+        async def _gen() -> AsyncIterator[str]:
+            nonlocal completed
+            response = await model.generate_content_async(prompt, stream=True)
+            async for chunk in response:
+                chunk_text = chunk.text if chunk.text else ""
+                for line in chunk_text.splitlines(keepends=True):
+                    stripped = line.strip()
+                    if stripped.startswith("ACTION:"):
+                        action_json = stripped[len("ACTION:"):].strip()
+                        try:
+                            action_obj = json.loads(action_json)
+                            actions.append(action_obj)
+                            yield json.dumps({"type": "action", "action": action_obj})
+                        except json.JSONDecodeError:
+                            yield json.dumps({"type": "text", "content": line})
+                    elif stripped.upper().startswith("DONE:"):
+                        done_val = stripped[5:].strip().lower()
+                        completed = done_val == "true"
+                    elif line:
+                        yield json.dumps({"type": "text", "content": line})
+            yield json.dumps({"type": "done", "completed": completed})
+            _log_response(self.name, turn, actions, completed)
+
+        return _gen()
 
 
 _BACKENDS: dict[str, type] = {

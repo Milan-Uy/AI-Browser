@@ -1,4 +1,5 @@
 import json
+import httpx
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
@@ -112,3 +113,57 @@ async def test_chat_non_login_message_skips_form() -> None:
     assert actions == []
     assert parsed[-1]["type"] == "done"
     assert parsed[-1]["completed"] is True
+
+
+@pytest.mark.asyncio
+async def test_custom_backend_streams_action_and_done(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CustomLLM: end-to-end streaming through /chat with a mocked HTTP transport."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "custom")
+    monkeypatch.setenv("AIB_CUSTOM_API_URL", "https://fake-llm.example.com")
+    monkeypatch.setenv("AIB_CUSTOM_API_KEY", "fake-key")
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("authorization")
+        captured["body"] = json.loads(request.content)
+        sse_body = (
+            b'data: {"choices":[{"delta":{"content":"Filling the email field.\\n"}}]}\n\n'
+            b'data: {"choices":[{"delta":{"content":"ACTION: {\\"kind\\": \\"fill\\", \\"selector\\": \\"#email\\", \\"value\\": \\"x\\"}\\n"}}]}\n\n'
+            b'data: {"choices":[{"delta":{"content":"DONE: false\\n"}}]}\n\n'
+            b'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    original_client = httpx.AsyncClient
+
+    def patched_client(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        parsed = await _collect_chunks(client, {"message": "login", "page": LOGIN_PAGE})
+
+    assert captured["url"] == "https://fake-llm.example.com/openapi/chat/v1/messages"
+    assert captured["auth"] == "Bearer fake-key"
+    assert captured["body"]["stream"] is True
+    assert captured["body"]["messages"][0]["role"] == "user"
+
+    actions = [p for p in parsed if p.get("type") == "action"]
+    assert len(actions) == 1
+    assert actions[0]["action"] == {"kind": "fill", "selector": "#email", "value": "x"}
+    assert parsed[-1] == {"type": "done", "completed": False}
+
+
+@pytest.mark.asyncio
+async def test_custom_backend_requires_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.llm import CustomLLM
+
+    monkeypatch.delenv("AIB_CUSTOM_API_URL", raising=False)
+    monkeypatch.delenv("AIB_CUSTOM_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="AIB_CUSTOM_API_URL"):
+        await CustomLLM().stream("hi", None, [])

@@ -12,10 +12,6 @@ import { validateAction, createRateLimiter } from "@/lib/security";
 const BACKEND_URL = "http://localhost:8000/chat";
 const MAX_TURNS = 10;
 
-type Pending = {
-  resolve: (approved: boolean) => void;
-};
-
 export default defineBackground(() => {
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
@@ -26,45 +22,18 @@ export default defineBackground(() => {
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== "chat") return;
     const controller = new AbortController();
-    const pending = new Map<string, Pending>();
     let aborted = false;
 
     port.onDisconnect.addListener(() => {
       aborted = true;
       controller.abort();
-      for (const p of pending.values()) p.resolve(false);
-      pending.clear();
     });
 
-    const waitForRunApproval = (requestId: string, prompt: string) =>
-      new Promise<boolean>((resolve) => {
-        pending.set(requestId, { resolve });
-        port.postMessage(makeMessage("CONFIRM_RUN", { requestId, prompt }));
-      });
-
     port.onMessage.addListener(async (msg: AppMessage) => {
-      if (isMessageOfKind(msg, "RUN_APPROVED")) {
-        const p = pending.get(msg.payload.requestId);
-        if (p) {
-          pending.delete(msg.payload.requestId);
-          p.resolve(msg.payload.approved);
-        }
-        return;
-      }
       if (!isMessageOfKind(msg, "CHAT_MESSAGE")) return;
 
       const requestId = Math.random().toString(36).slice(2);
-
-      const approved = await waitForRunApproval(requestId, msg.payload.text);
-      if (!approved || aborted) {
-        port.postMessage(
-          makeMessage("STREAM_CHUNK", {
-            requestId,
-            chunk: { type: "done", completed: true },
-          }),
-        );
-        return;
-      }
+      if (aborted) return;
 
       const history: TurnRecord[] = [];
 

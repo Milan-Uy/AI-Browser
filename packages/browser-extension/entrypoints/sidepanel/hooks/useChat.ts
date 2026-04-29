@@ -6,15 +6,9 @@ function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export interface PendingRun {
-  requestId: string;
-  prompt: string;
-}
-
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState(false);
-  const [pendingRun, setPendingRun] = useState<PendingRun | null>(null);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   const assistantIdRef = useRef<string | null>(null);
 
@@ -23,10 +17,6 @@ export function useChat() {
     portRef.current = port;
 
     port.onMessage.addListener((msg: AppMessage) => {
-      if (isMessageOfKind(msg, "CONFIRM_RUN")) {
-        setPendingRun({ requestId: msg.payload.requestId, prompt: msg.payload.prompt });
-        return;
-      }
       if (!isMessageOfKind(msg, "STREAM_CHUNK")) return;
       const id = assistantIdRef.current;
       if (!id) return;
@@ -56,11 +46,6 @@ export function useChat() {
     };
   }, []);
 
-  const approveRun = useCallback((requestId: string, approved: boolean) => {
-    setPendingRun(null);
-    portRef.current?.postMessage(makeMessage("RUN_APPROVED", { requestId, approved }));
-  }, []);
-
   const cancel = useCallback(() => {
     const id = assistantIdRef.current;
     if (id) {
@@ -72,7 +57,6 @@ export function useChat() {
     }
     assistantIdRef.current = null;
     setPending(false);
-    setPendingRun(null);
   }, []);
 
   const send = useCallback(
@@ -88,5 +72,5 @@ export function useChat() {
     [pending],
   );
 
-  return { messages, pending, pendingRun, send, approveRun, cancel };
+  return { messages, pending, send, cancel };
 }

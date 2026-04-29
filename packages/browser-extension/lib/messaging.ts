@@ -42,8 +42,6 @@ type Payloads = {
   PAGE_CONTENT_RESULT: { content: PageContent };
   CHAT_MESSAGE: { text: string; includePage: boolean };
   STREAM_CHUNK: { requestId: string; chunk: StreamChunk };
-  CONFIRM_RUN: { requestId: string; prompt: string };
-  RUN_APPROVED: { requestId: string; approved: boolean };
   EXECUTE_ACTION: { requestId: string; action: LLMAction };
   EXECUTE_ACTION_RESULT: { requestId: string; result: ActionResult };
 };

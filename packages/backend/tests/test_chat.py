@@ -116,22 +116,25 @@ async def test_chat_non_login_message_skips_form() -> None:
 
 
 @pytest.mark.asyncio
-async def test_custom_backend_streams_action_and_done(monkeypatch: pytest.MonkeyPatch) -> None:
-    """CustomLLM: end-to-end streaming through /chat with a mocked HTTP transport."""
-    monkeypatch.setenv("AIB_LLM_BACKEND", "custom")
-    monkeypatch.setenv("AIB_CUSTOM_API_URL", "https://fake-llm.example.com")
-    monkeypatch.setenv("AIB_CUSTOM_API_KEY", "fake-key")
+async def test_gauss_backend_streams_action_and_done(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GaussLLM: end-to-end streaming through /chat with a mocked HTTP transport."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
+    monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
+    monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
+    monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
+    monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro,gauss-mini")
+    monkeypatch.setenv("AIB_GAUSS_USER_EMAIL", "qa@example.com")
 
     captured: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured["url"] = str(request.url)
-        captured["auth"] = request.headers.get("authorization")
+        captured["headers"] = dict(request.headers)
         captured["body"] = json.loads(request.content)
         sse_body = (
-            b'data: {"choices":[{"delta":{"content":"Filling the email field.\\n"}}]}\n\n'
-            b'data: {"choices":[{"delta":{"content":"ACTION: {\\"kind\\": \\"fill\\", \\"selector\\": \\"#email\\", \\"value\\": \\"x\\"}\\n"}}]}\n\n'
-            b'data: {"choices":[{"delta":{"content":"DONE: false\\n"}}]}\n\n'
+            b'data: {"content": "Filling the email field.\\n", "finish_reason": null}\n\n'
+            b'data: {"content": "ACTION: {\\"kind\\": \\"fill\\", \\"selector\\": \\"#email\\", \\"value\\": \\"x\\"}\\n", "finish_reason": null}\n\n'
+            b'data: {"content": "DONE: false\\n", "finish_reason": "stop"}\n\n'
             b'data: [DONE]\n\n'
         )
         return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
@@ -147,10 +150,14 @@ async def test_custom_backend_streams_action_and_done(monkeypatch: pytest.Monkey
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
         parsed = await _collect_chunks(client, {"message": "login", "page": LOGIN_PAGE})
 
-    assert captured["url"] == "https://fake-llm.example.com/openapi/chat/v1/messages"
-    assert captured["auth"] == "Bearer fake-key"
-    assert captured["body"]["stream"] is True
-    assert captured["body"]["messages"][0]["role"] == "user"
+    assert captured["url"] == "https://fake-gauss.example.com/openapi/chat/v1/messages"
+    assert captured["headers"]["x-generative-ai-client"] == "fake-client"
+    assert captured["headers"]["x-openapi-token"] == "fake-token"
+    assert captured["headers"]["x-generative-ai-user-email"] == "qa@example.com"
+    assert captured["body"]["modelIds"] == ["gauss-pro", "gauss-mini"]
+    assert captured["body"]["isStream"] is True
+    assert captured["body"]["contents"] == ["login"]
+    assert "AI browser assistant" in captured["body"]["systemPrompt"]
 
     actions = [p for p in parsed if p.get("type") == "action"]
     assert len(actions) == 1
@@ -159,11 +166,11 @@ async def test_custom_backend_streams_action_and_done(monkeypatch: pytest.Monkey
 
 
 @pytest.mark.asyncio
-async def test_custom_backend_requires_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.llm import CustomLLM
+async def test_gauss_backend_requires_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.llm import GaussLLM
 
-    monkeypatch.delenv("AIB_CUSTOM_API_URL", raising=False)
-    monkeypatch.delenv("AIB_CUSTOM_API_KEY", raising=False)
+    for var in ("AIB_GAUSS_API_URL", "AIB_GAUSS_CLIENT", "AIB_GAUSS_TOKEN", "AIB_GAUSS_MODEL_IDS"):
+        monkeypatch.delenv(var, raising=False)
 
-    with pytest.raises(ValueError, match="AIB_CUSTOM_API_URL"):
-        await CustomLLM().stream("hi", None, [])
+    with pytest.raises(ValueError, match="AIB_GAUSS_API_URL"):
+        await GaussLLM().stream("hi", None, [])

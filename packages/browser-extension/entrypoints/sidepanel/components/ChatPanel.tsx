@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageBubble } from "./MessageBubble";
 import { PageContextBadge } from "./PageContextBadge";
-import { RunConfirmDialog } from "./ActionConfirmDialog";
 import { useChat } from "../hooks/useChat";
 import { usePageContent } from "../hooks/usePageContent";
 
 export function ChatPanel() {
-  const { messages, pending, pendingRun, send, approveRun, cancel } = useChat();
+  const { messages, pending, send, cancel } = useChat();
   const { content, loading, refresh } = usePageContent();
   const [includePage, setIncludePage] = useState(true);
   const [input, setInput] = useState("");
@@ -14,7 +13,7 @@ export function ChatPanel() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, pendingRun]);
+  }, [messages]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,12 +45,6 @@ export function ChatPanel() {
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}
-        {pendingRun && (
-          <RunConfirmDialog
-            prompt={pendingRun.prompt}
-            onDecision={(approved) => approveRun(pendingRun.requestId, approved)}
-          />
-        )}
       </div>
       {hasError && (
         <div className="px-3 py-1.5 text-xs bg-rose-900/40 text-rose-300 border-t border-rose-700">

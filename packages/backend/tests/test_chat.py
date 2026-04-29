@@ -166,6 +166,44 @@ async def test_gauss_backend_streams_action_and_done(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
+async def test_gauss_backend_buffers_action_split_across_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ACTION lines must be parsed even when fragmented across stream chunks."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
+    monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
+    monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
+    monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
+    monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sse_body = (
+            b'data: {"content": "AC", "finish_reason": null}\n\n'
+            b'data: {"content": "TION: {\\"kind\\":", "finish_reason": null}\n\n'
+            b'data: {"content": " \\"click\\", \\"selector\\": \\"#go\\"}\\n", "finish_reason": null}\n\n'
+            b'data: {"content": "DO", "finish_reason": null}\n\n'
+            b'data: {"content": "NE: tr", "finish_reason": null}\n\n'
+            b'data: {"content": "ue\\n", "finish_reason": "stop"}\n\n'
+            b'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    original_client = httpx.AsyncClient
+
+    def patched_client(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        parsed = await _collect_chunks(client, {"message": "go", "page": LOGIN_PAGE})
+
+    actions = [p for p in parsed if p.get("type") == "action"]
+    assert len(actions) == 1
+    assert actions[0]["action"] == {"kind": "click", "selector": "#go"}
+    assert parsed[-1] == {"type": "done", "completed": True}
+
+
+@pytest.mark.asyncio
 async def test_gauss_backend_requires_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.llm import GaussLLM
 

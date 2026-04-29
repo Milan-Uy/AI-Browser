@@ -58,7 +58,7 @@ class LLMBackend(Protocol):
     ) -> AsyncIterator[str]: ...
 
 
-def _build_prompt(message: str, page: Optional[PageContent], history: List[TurnRecord]) -> str:
+def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord]) -> str:
     prompt_lines: list[str] = [
         "You are an AI browser assistant. The user gives you a task and you "
         "either answer it directly or perform browser actions to accomplish it.",
@@ -107,8 +107,11 @@ def _build_prompt(message: str, page: Optional[PageContent], history: List[TurnR
                 prompt_lines.append(f"  Action taken: {json.dumps(act.model_dump())}")
         prompt_lines.append("")
 
-    prompt_lines += ["## Task", message]
     return "\n".join(prompt_lines)
+
+
+def _build_prompt(message: str, page: Optional[PageContent], history: List[TurnRecord]) -> str:
+    return _build_system_prompt(page, history) + "\n## Task\n" + message
 
 
 def _parse_model_line(line: str, actions: list) -> tuple[Optional[str], Optional[bool]]:
@@ -207,22 +210,23 @@ class GeminiLLM:
         return _gen()
 
 
-class CustomLLM:
-    """Backend for a proprietary LLM exposed as a streaming HTTP API.
+class GaussLLM:
+    """Backend for the Gauss OpenAPI LLM (POST /openapi/chat/v1/messages).
 
-    Configure with:
-      AIB_LLM_BACKEND=custom
-      AIB_CUSTOM_API_URL=https://your-llm-host.example.com    (no trailing slash)
-      AIB_CUSTOM_API_KEY=your-bearer-token
-      AIB_CUSTOM_MODEL=optional-model-name
-      AIB_CUSTOM_ENDPOINT_PATH=/openapi/chat/v1/messages       (override if different)
+    Required env:
+      AIB_LLM_BACKEND=gauss
+      AIB_GAUSS_API_URL=https://your-gauss-host.example.com    (no trailing slash)
+      AIB_GAUSS_CLIENT=<x-generative-ai-client header value>
+      AIB_GAUSS_TOKEN=<x-openapi-token header value>
+      AIB_GAUSS_MODEL_IDS=model-id-a,model-id-b                (comma-separated)
 
-    The default request body and SSE-chunk parser assume an OpenAI-style
-    `{choices: [{delta: {content: "..."}}]}` shape. Edit the two blocks marked
-    `ADAPT` if your provider uses a different schema.
+    Optional env:
+      AIB_GAUSS_USER_EMAIL=<x-generative-ai-user-email header>
+      AIB_GAUSS_ENDPOINT_PATH=/openapi/chat/v1/messages         (override if different)
+      AIB_GAUSS_STREAM=1                                        (default: 1; set 0 for non-stream)
     """
 
-    name = "custom"
+    name = "gauss"
 
     async def stream(
         self,
@@ -230,96 +234,124 @@ class CustomLLM:
         page: Optional[PageContent],
         history: List[TurnRecord],
     ) -> AsyncIterator[str]:
-        import httpx  # deferred: only needed when backend=custom
+        import httpx  # deferred: only needed when backend=gauss
 
-        api_url = os.environ.get("AIB_CUSTOM_API_URL", "").rstrip("/")
-        api_key = os.environ.get("AIB_CUSTOM_API_KEY", "")
-        model_name = os.environ.get("AIB_CUSTOM_MODEL", "")
-        endpoint_path = os.environ.get("AIB_CUSTOM_ENDPOINT_PATH", "/openapi/chat/v1/messages")
-        if not api_url or not api_key:
+        api_url = os.environ.get("AIB_GAUSS_API_URL", "").rstrip("/")
+        client_id = os.environ.get("AIB_GAUSS_CLIENT", "")
+        token = os.environ.get("AIB_GAUSS_TOKEN", "")
+        model_ids_raw = os.environ.get("AIB_GAUSS_MODEL_IDS", "")
+        endpoint_path = os.environ.get("AIB_GAUSS_ENDPOINT_PATH", "/openapi/chat/v1/messages")
+        user_email = os.environ.get("AIB_GAUSS_USER_EMAIL", "")
+        stream_enabled = os.environ.get("AIB_GAUSS_STREAM", "1").lower() not in ("0", "false", "")
+
+        missing = [
+            name for name, val in (
+                ("AIB_GAUSS_API_URL", api_url),
+                ("AIB_GAUSS_CLIENT", client_id),
+                ("AIB_GAUSS_TOKEN", token),
+                ("AIB_GAUSS_MODEL_IDS", model_ids_raw),
+            ) if not val
+        ]
+        if missing:
             raise ValueError(
-                "AIB_CUSTOM_API_URL and AIB_CUSTOM_API_KEY must be set. "
+                f"Missing required Gauss env vars: {', '.join(missing)}. "
                 "Add them to packages/backend/.env."
             )
+
+        model_ids = [m.strip() for m in model_ids_raw.split(",") if m.strip()]
+        if not model_ids:
+            raise ValueError("AIB_GAUSS_MODEL_IDS must contain at least one model id.")
 
         turn = len(history)
         _log_request(self.name, turn, message, page, history)
         actions: list = []
         completed = False
 
-        prompt = _build_prompt(message, page, history)
+        system_prompt = _build_system_prompt(page, history)
 
-        # ─── ADAPT: request schema for your proprietary API ───────────────
         endpoint = f"{api_url}{endpoint_path}"
         headers = {
-            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "Accept": "text/event-stream",
+            "x-generative-ai-client": client_id,
+            "x-openapi-token": token,
         }
+        if user_email:
+            headers["x-generative-ai-user-email"] = user_email
+
         body: dict = {
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": True,
+            "modelIds": model_ids,
+            "contents": [message],
+            "isStream": stream_enabled,
+            "systemPrompt": system_prompt,
         }
-        if model_name:
-            body["model"] = model_name
-        # ──────────────────────────────────────────────────────────────────
 
         async def _gen() -> AsyncIterator[str]:
             nonlocal completed
             async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream("POST", endpoint, headers=headers, json=body) as resp:
+                if stream_enabled:
+                    async with client.stream("POST", endpoint, headers=headers, json=body) as resp:
+                        resp.raise_for_status()
+                        async for raw_line in resp.aiter_lines():
+                            text_piece = _extract_gauss_chunk_text(raw_line)
+                            if not text_piece:
+                                continue
+                            for chunk_line in text_piece.splitlines(keepends=True):
+                                out, done_val = _parse_model_line(chunk_line, actions)
+                                if out is not None:
+                                    yield out
+                                if done_val is not None:
+                                    completed = done_val
+                else:
+                    resp = await client.post(endpoint, headers=headers, json=body)
                     resp.raise_for_status()
-                    async for raw_line in resp.aiter_lines():
-                        text_piece = _extract_custom_chunk_text(raw_line)
-                        if not text_piece:
-                            continue
-                        for chunk_line in text_piece.splitlines(keepends=True):
-                            out, done_val = _parse_model_line(chunk_line, actions)
-                            if out is not None:
-                                yield out
-                            if done_val is not None:
-                                completed = done_val
+                    obj = resp.json()
+                    block = (obj.get("filterBlockReason") or obj.get("filter_block_reason") or {})
+                    blocked = block.get("message") if isinstance(block, dict) else None
+                    text_piece = f"[blocked: {blocked}]\n" if blocked else (obj.get("content", "") or "")
+                    for chunk_line in text_piece.splitlines(keepends=True):
+                        out, done_val = _parse_model_line(chunk_line, actions)
+                        if out is not None:
+                            yield out
+                        if done_val is not None:
+                            completed = done_val
             yield json.dumps({"type": "done", "completed": completed})
             _log_response(self.name, turn, actions, completed)
 
         return _gen()
 
 
-def _extract_custom_chunk_text(raw_line: str) -> str:
-    """Extract the text payload from one streamed line of the custom LLM response.
+def _extract_gauss_chunk_text(raw_line: str) -> str:
+    """Extract one text chunk from a streamed Gauss response line.
 
-    ─── ADAPT: stream-chunk parser for your proprietary API ──────────────
-    Default: OpenAI-style SSE — `data: {"choices":[{"delta":{"content":"..."}}]}`.
-    Common alternatives:
-      - NDJSON:    each line is a bare JSON object (drop the "data: " check).
-      - Anthropic: parse `event: content_block_delta` then `data: {...}` with `.delta.text`.
-      - Plain text: return `raw_line + "\\n"` directly.
-    ──────────────────────────────────────────────────────────────────────
+    Stream format: one JSON object per line, optionally SSE-wrapped as
+    `data: {...}`. Field names are snake_case in stream mode. The text
+    payload lives in `content`; safety refusals live in
+    `filter_block_reason.message`.
     """
-    if not raw_line or not raw_line.startswith("data:"):
+    if not raw_line:
         return ""
-    payload = raw_line[5:].strip()
-    if payload in ("", "[DONE]"):
+    line = raw_line[5:].strip() if raw_line.startswith("data:") else raw_line.strip()
+    if line in ("", "[DONE]"):
         return ""
     try:
-        obj = json.loads(payload)
+        obj = json.loads(line)
     except json.JSONDecodeError:
         return ""
-    choices = obj.get("choices") or []
-    if not choices:
-        return ""
-    delta = choices[0].get("delta") or {}
-    return delta.get("content", "") or ""
+    block = obj.get("filter_block_reason") or {}
+    blocked = block.get("message") if isinstance(block, dict) else None
+    if blocked:
+        return f"[blocked: {blocked}]\n"
+    return obj.get("content", "") or ""
 
 
 _BACKENDS: dict[str, type] = {
     "mock": MockLLM,
     "gemini": GeminiLLM,
-    "custom": CustomLLM,
+    "gauss": GaussLLM,
 }
 
 
-def get_llm() -> MockLLM | GeminiLLM | CustomLLM:
+def get_llm() -> MockLLM | GeminiLLM | GaussLLM:
     name = os.environ.get("AIB_LLM_BACKEND", "mock").lower()
     cls = _BACKENDS.get(name)
     if cls is None:

@@ -100,6 +100,7 @@ export default defineBackground(() => {
                 }),
               );
               turnActions.push({ action: chunk.action, result });
+              break;
             } else if (chunk.type === "done") {
               completed = chunk.completed ?? true;
               break;

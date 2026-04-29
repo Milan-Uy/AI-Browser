@@ -287,6 +287,7 @@ class GaussLLM:
 
         async def _gen() -> AsyncIterator[str]:
             nonlocal completed
+            buffer = ""
             async with httpx.AsyncClient(timeout=120.0) as client:
                 if stream_enabled:
                     async with client.stream("POST", endpoint, headers=headers, json=body) as resp:
@@ -295,8 +296,10 @@ class GaussLLM:
                             text_piece = _extract_gauss_chunk_text(raw_line)
                             if not text_piece:
                                 continue
-                            for chunk_line in text_piece.splitlines(keepends=True):
-                                out, done_val = _parse_model_line(chunk_line, actions)
+                            buffer += text_piece
+                            while "\n" in buffer:
+                                line_part, _, buffer = buffer.partition("\n")
+                                out, done_val = _parse_model_line(line_part + "\n", actions)
                                 if out is not None:
                                     yield out
                                 if done_val is not None:
@@ -305,13 +308,13 @@ class GaussLLM:
                     resp = await client.post(endpoint, headers=headers, json=body)
                     resp.raise_for_status()
                     obj = resp.json()
-                    text_piece = obj.get("content", "") or ""
-                    for chunk_line in text_piece.splitlines(keepends=True):
-                        out, done_val = _parse_model_line(chunk_line, actions)
-                        if out is not None:
-                            yield out
-                        if done_val is not None:
-                            completed = done_val
+                    buffer = obj.get("content", "") or ""
+            if buffer.strip():
+                out, done_val = _parse_model_line(buffer, actions)
+                if out is not None:
+                    yield out
+                if done_val is not None:
+                    completed = done_val
             yield json.dumps({"type": "done", "completed": completed})
             _log_response(self.name, turn, actions, completed)
 

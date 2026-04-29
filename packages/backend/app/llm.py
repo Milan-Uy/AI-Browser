@@ -305,9 +305,7 @@ class GaussLLM:
                     resp = await client.post(endpoint, headers=headers, json=body)
                     resp.raise_for_status()
                     obj = resp.json()
-                    block = (obj.get("filterBlockReason") or obj.get("filter_block_reason") or {})
-                    blocked = block.get("message") if isinstance(block, dict) else None
-                    text_piece = f"[blocked: {blocked}]\n" if blocked else (obj.get("content", "") or "")
+                    text_piece = obj.get("content", "") or ""
                     for chunk_line in text_piece.splitlines(keepends=True):
                         out, done_val = _parse_model_line(chunk_line, actions)
                         if out is not None:
@@ -325,8 +323,7 @@ def _extract_gauss_chunk_text(raw_line: str) -> str:
 
     Stream format: one JSON object per line, optionally SSE-wrapped as
     `data: {...}`. Field names are snake_case in stream mode. The text
-    payload lives in `content`; safety refusals live in
-    `filter_block_reason.message`.
+    payload lives in `content`.
     """
     if not raw_line:
         return ""
@@ -337,10 +334,6 @@ def _extract_gauss_chunk_text(raw_line: str) -> str:
         obj = json.loads(line)
     except json.JSONDecodeError:
         return ""
-    block = obj.get("filter_block_reason") or {}
-    blocked = block.get("message") if isinstance(block, dict) else None
-    if blocked:
-        return f"[blocked: {blocked}]\n"
     return obj.get("content", "") or ""
 
 

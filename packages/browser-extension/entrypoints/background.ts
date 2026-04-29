@@ -3,7 +3,7 @@ import {
   makeMessage,
   sendToTab,
   type AppMessage,
-  type LLMAction,
+  type TurnActionRecord,
   type TurnRecord,
 } from "@/lib/messaging";
 import { streamChat } from "@/lib/api-client";
@@ -53,7 +53,7 @@ export default defineBackground(() => {
         console.log({ message: msg.payload.text, page, history });
         console.groupEnd();
 
-        const turnActions: LLMAction[] = [];
+        const turnActions: TurnActionRecord[] = [];
         let completed = false;
 
         try {
@@ -83,8 +83,11 @@ export default defineBackground(() => {
                 requestId: actionId,
                 action: chunk.action,
               })) as AppMessage | null;
-              const ok =
-                res && isMessageOfKind(res, "EXECUTE_ACTION_RESULT") && res.payload.result.ok;
+              const result =
+                res && isMessageOfKind(res, "EXECUTE_ACTION_RESULT")
+                  ? res.payload.result
+                  : { ok: false, message: "no result" };
+              const ok = result.ok;
               port.postMessage(
                 makeMessage("STREAM_CHUNK", {
                   requestId,
@@ -92,14 +95,11 @@ export default defineBackground(() => {
                     type: "text",
                     content: ok
                       ? `\n[action executed ✓]\n`
-                      : `\n[action failed: ${
-                          (res && isMessageOfKind(res, "EXECUTE_ACTION_RESULT") && res.payload.result.message) ||
-                          "unknown"
-                        }]\n`,
+                      : `\n[action failed: ${result.message ?? "unknown"}]\n`,
                   },
                 }),
               );
-              if (ok) turnActions.push(chunk.action);
+              turnActions.push({ action: chunk.action, result });
             } else if (chunk.type === "done") {
               completed = chunk.completed ?? true;
               break;

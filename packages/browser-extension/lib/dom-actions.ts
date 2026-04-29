@@ -20,24 +20,53 @@ export async function executeAction(action: LLMAction): Promise<ActionResult> {
   }
 }
 
-function find(selector: string): HTMLElement | null {
+export function waitForElement(selector: string, timeoutMs = 1500): Promise<HTMLElement | null> {
+  let el: HTMLElement | null = null;
   try {
-    return document.querySelector(selector);
+    el = document.querySelector<HTMLElement>(selector);
   } catch {
-    return null;
+    return Promise.resolve(null);
   }
+  if (el) return Promise.resolve(el);
+
+  return new Promise<HTMLElement | null>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new MutationObserver(() => {
+      let found: HTMLElement | null = null;
+      try {
+        found = document.querySelector<HTMLElement>(selector);
+      } catch {
+        // invalid selector
+      }
+      if (found) {
+        observer.disconnect();
+        if (timer !== null) clearTimeout(timer);
+        resolve(found);
+      }
+    });
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["hidden", "aria-hidden", "style", "class"],
+    });
+    timer = setTimeout(() => {
+      observer.disconnect();
+      resolve(null);
+    }, timeoutMs);
+  });
 }
 
-function doClick(selector: string): ActionResult {
-  const el = find(selector);
+async function doClick(selector: string): Promise<ActionResult> {
+  const el = await waitForElement(selector);
   if (!el) return { ok: false, message: `element not found: ${selector}` };
   el.scrollIntoView({ block: "center", inline: "center" });
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
   return { ok: true };
 }
 
-function doFill(selector: string, value: string): ActionResult {
-  const el = find(selector);
+async function doFill(selector: string, value: string): Promise<ActionResult> {
+  const el = await waitForElement(selector);
   if (!el) return { ok: false, message: `element not found: ${selector}` };
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
     return { ok: false, message: "element is not an input/textarea" };
@@ -53,8 +82,8 @@ function doFill(selector: string, value: string): ActionResult {
   return { ok: true };
 }
 
-function doSelect(selector: string, value: string): ActionResult {
-  const el = find(selector);
+async function doSelect(selector: string, value: string): Promise<ActionResult> {
+  const el = await waitForElement(selector);
   if (!el) return { ok: false, message: `element not found: ${selector}` };
   if (!(el instanceof HTMLSelectElement)) {
     return { ok: false, message: "element is not a <select>" };
@@ -64,9 +93,9 @@ function doSelect(selector: string, value: string): ActionResult {
   return { ok: true };
 }
 
-function doScroll(a: Extract<LLMAction, { kind: "scroll" }>): ActionResult {
+async function doScroll(a: Extract<LLMAction, { kind: "scroll" }>): Promise<ActionResult> {
   if (a.selector) {
-    const el = find(a.selector);
+    const el = await waitForElement(a.selector);
     if (!el) return { ok: false, message: `element not found: ${a.selector}` };
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     return { ok: true };

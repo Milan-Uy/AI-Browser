@@ -68,7 +68,10 @@ async def test_chat_multi_turn_login_sequence() -> None:
         assert actions0[0]["selector"] == "#email"
         assert actions0[0]["value"] == "test"
         assert turn0[-1]["completed"] is False
-        history.append({"actions": actions0, "page": LOGIN_PAGE})
+        history.append({
+            "actions": [{"action": a, "result": {"ok": True}} for a in actions0],
+            "page": LOGIN_PAGE,
+        })
 
         # Turn 1: fill password
         body = {"message": "login", "page": LOGIN_PAGE, "history": history}
@@ -79,7 +82,10 @@ async def test_chat_multi_turn_login_sequence() -> None:
         assert actions1[0]["selector"] == "#password"
         assert actions1[0]["value"] == "test"
         assert turn1[-1]["completed"] is False
-        history.append({"actions": actions1, "page": LOGIN_PAGE})
+        history.append({
+            "actions": [{"action": a, "result": {"ok": True}} for a in actions1],
+            "page": LOGIN_PAGE,
+        })
 
         # Turn 2: click submit
         body = {"message": "login", "page": LOGIN_PAGE, "history": history}

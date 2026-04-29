@@ -50,8 +50,18 @@ class SelectAction(BaseModel):
 Action = Union[ClickAction, FillAction, ScrollAction, NavigateAction, SelectAction]
 
 
+class ActionResult(BaseModel):
+    ok: bool
+    message: Optional[str] = None
+
+
+class TurnActionRecord(BaseModel):
+    action: Action
+    result: ActionResult
+
+
 class TurnRecord(BaseModel):
-    actions: List[Action] = Field(default_factory=list)
+    actions: List[TurnActionRecord] = Field(default_factory=list)
     page: Optional[PageContent] = None
 
 

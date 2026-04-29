@@ -21,8 +21,18 @@ export type LLMAction =
   | { kind: "navigate"; url: string }
   | { kind: "select"; selector: string; value: string };
 
+export interface ActionResult {
+  ok: boolean;
+  message?: string;
+}
+
+export interface TurnActionRecord {
+  action: LLMAction;
+  result: ActionResult;
+}
+
 export interface TurnRecord {
-  actions: LLMAction[];
+  actions: TurnActionRecord[];
   page: PageContent | null;
 }
 
@@ -31,11 +41,6 @@ export type StreamChunk =
   | { type: "action"; action: LLMAction }
   | { type: "done"; completed?: boolean }
   | { type: "error"; message: string };
-
-export interface ActionResult {
-  ok: boolean;
-  message?: string;
-}
 
 type Payloads = {
   GET_PAGE_CONTENT: void;

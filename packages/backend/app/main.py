@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -43,9 +44,12 @@ def create_app() -> FastAPI:
         llm = get_llm()
 
         async def event_gen():
-            stream = await llm.stream(req.message, req.page, req.history)
-            async for chunk in stream:
-                yield {"data": chunk}
+            try:
+                stream = await llm.stream(req.message, req.page, req.history)
+                async for chunk in stream:
+                    yield {"data": chunk}
+            except Exception as exc:
+                yield {"data": json.dumps({"type": "error", "message": str(exc)})}
 
         return EventSourceResponse(event_gen())
 

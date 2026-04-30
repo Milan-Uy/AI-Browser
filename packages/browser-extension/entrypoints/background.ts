@@ -32,21 +32,21 @@ async function fetchPageContent(
 }
 
 function describeAction(action: LLMAction): string {
+  const d = action.description;
   switch (action.kind) {
     case "click":
-      return `Clicked \`${action.selector}\``;
+      return d ? `Clicked ${d}` : "Clicked element";
     case "fill":
-      return `Typed '${action.value}' into \`${action.selector}\``;
+      return d ? `Typed '${action.value}' into ${d}` : `Typed '${action.value}'`;
     case "scroll": {
-      const target = action.selector ? ` on \`${action.selector}\`` : "";
       const dir = action.direction ?? "down";
       const amt = action.amount != null ? ` by ${action.amount}` : "";
-      return `Scrolled ${dir}${amt}${target}`;
+      return d ? `Scrolled ${dir}${amt} on ${d}` : `Scrolled ${dir}${amt}`;
     }
     case "navigate":
       return `Navigated to ${action.url}`;
     case "select":
-      return `Selected '${action.value}' in \`${action.selector}\``;
+      return d ? `Selected '${action.value}' in ${d}` : `Selected '${action.value}'`;
   }
 }
 

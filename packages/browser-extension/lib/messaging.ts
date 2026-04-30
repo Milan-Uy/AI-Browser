@@ -15,11 +15,11 @@ export interface PageContent {
 }
 
 export type LLMAction =
-  | { kind: "click"; selector: string }
-  | { kind: "fill"; selector: string; value: string }
-  | { kind: "scroll"; selector?: string; direction?: "up" | "down" | "top" | "bottom"; amount?: number }
-  | { kind: "navigate"; url: string }
-  | { kind: "select"; selector: string; value: string };
+  | { kind: "click"; selector: string; description?: string }
+  | { kind: "fill"; selector: string; value: string; description?: string }
+  | { kind: "scroll"; selector?: string; direction?: "up" | "down" | "top" | "bottom"; amount?: number; description?: string }
+  | { kind: "navigate"; url: string; description?: string }
+  | { kind: "select"; selector: string; value: string; description?: string };
 
 export interface ActionResult {
   ok: boolean;

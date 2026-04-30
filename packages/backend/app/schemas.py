@@ -21,12 +21,14 @@ class PageContent(BaseModel):
 class ClickAction(BaseModel):
     kind: Literal["click"] = "click"
     selector: str
+    description: Optional[str] = None
 
 
 class FillAction(BaseModel):
     kind: Literal["fill"] = "fill"
     selector: str
     value: str
+    description: Optional[str] = None
 
 
 class ScrollAction(BaseModel):
@@ -34,17 +36,20 @@ class ScrollAction(BaseModel):
     selector: Optional[str] = None
     direction: Optional[Literal["up", "down", "top", "bottom"]] = None
     amount: Optional[int] = None
+    description: Optional[str] = None
 
 
 class NavigateAction(BaseModel):
     kind: Literal["navigate"] = "navigate"
     url: str
+    description: Optional[str] = None
 
 
 class SelectAction(BaseModel):
     kind: Literal["select"] = "select"
     selector: str
     value: str
+    description: Optional[str] = None
 
 
 Action = Union[ClickAction, FillAction, ScrollAction, NavigateAction, SelectAction]

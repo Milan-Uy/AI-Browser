@@ -3,6 +3,7 @@ import {
   makeMessage,
   sendToTab,
   type AppMessage,
+  type PageContent,
   type TurnActionRecord,
   type TurnRecord,
 } from "@/lib/messaging";
@@ -11,6 +12,23 @@ import { validateAction, createRateLimiter } from "@/lib/security";
 
 const BACKEND_URL = "http://localhost:8000/chat";
 const MAX_TURNS = 10;
+
+async function fetchPageContent(
+  tabId: number,
+  attempts = 5,
+  delayMs = 200,
+): Promise<PageContent | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = (await sendToTab(tabId, "GET_PAGE_CONTENT", undefined)) as AppMessage | null;
+      if (res && isMessageOfKind(res, "PAGE_CONTENT_RESULT")) return res.payload.content;
+    } catch {
+      // content script may not be attached yet (e.g. mid-navigation)
+    }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
+}
 
 export default defineBackground(() => {
   chrome.sidePanel
@@ -40,13 +58,10 @@ export default defineBackground(() => {
       for (let turn = 0; turn < MAX_TURNS; turn++) {
         if (aborted) break;
 
-        let page = null;
+        let page: PageContent | null = null;
         if (msg.payload.includePage) {
           const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          if (tab?.id) {
-            const res = (await sendToTab(tab.id, "GET_PAGE_CONTENT", undefined)) as AppMessage | null;
-            if (res && isMessageOfKind(res, "PAGE_CONTENT_RESULT")) page = res.payload.content;
-          }
+          if (tab?.id) page = await fetchPageContent(tab.id);
         }
 
         console.groupCollapsed(`[agent] turn ${turn} → backend`);
@@ -79,14 +94,19 @@ export default defineBackground(() => {
               const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
               if (!tab?.id) continue;
               const actionId = `${requestId}-${Math.random().toString(36).slice(2, 8)}`;
-              const res = (await sendToTab(tab.id, "EXECUTE_ACTION", {
-                requestId: actionId,
-                action: chunk.action,
-              })) as AppMessage | null;
+              let res: AppMessage | null = null;
+              try {
+                res = (await sendToTab(tab.id, "EXECUTE_ACTION", {
+                  requestId: actionId,
+                  action: chunk.action,
+                })) as AppMessage | null;
+              } catch {
+                res = null;
+              }
               const result =
                 res && isMessageOfKind(res, "EXECUTE_ACTION_RESULT")
                   ? res.payload.result
-                  : { ok: false, message: "no result" };
+                  : { ok: false, message: "content script not reachable" };
               const ok = result.ok;
               port.postMessage(
                 makeMessage("STREAM_CHUNK", {

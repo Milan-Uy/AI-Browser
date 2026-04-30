@@ -3,6 +3,7 @@ import {
   makeMessage,
   sendToTab,
   type AppMessage,
+  type LLMAction,
   type PageContent,
   type TurnActionRecord,
   type TurnRecord,
@@ -28,6 +29,25 @@ async function fetchPageContent(
     if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
   }
   return null;
+}
+
+function describeAction(action: LLMAction): string {
+  switch (action.kind) {
+    case "click":
+      return `Clicked \`${action.selector}\``;
+    case "fill":
+      return `Typed '${action.value}' into \`${action.selector}\``;
+    case "scroll": {
+      const target = action.selector ? ` on \`${action.selector}\`` : "";
+      const dir = action.direction ?? "down";
+      const amt = action.amount != null ? ` by ${action.amount}` : "";
+      return `Scrolled ${dir}${amt}${target}`;
+    }
+    case "navigate":
+      return `Navigated to ${action.url}`;
+    case "select":
+      return `Selected '${action.value}' in \`${action.selector}\``;
+  }
 }
 
 export default defineBackground(() => {
@@ -114,7 +134,7 @@ export default defineBackground(() => {
                   chunk: {
                     type: "text",
                     content: ok
-                      ? `\n[action executed ✓]\n`
+                      ? `\n[${describeAction(chunk.action)} ✓]\n`
                       : `\n[action failed: ${result.message ?? "unknown"}]\n`,
                   },
                 }),

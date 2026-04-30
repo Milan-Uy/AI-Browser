@@ -5,7 +5,7 @@ import { useChat } from "../hooks/useChat";
 import { usePageContent } from "../hooks/usePageContent";
 
 export function ChatPanel() {
-  const { messages, pending, send, cancel } = useChat();
+  const { messages, pending, send, cancel, clear } = useChat();
   const { content, loading, refresh } = usePageContent();
   const [includePage, setIncludePage] = useState(true);
   const [input, setInput] = useState("");
@@ -23,11 +23,29 @@ export function ChatPanel() {
   };
 
   const hasError = messages[messages.length - 1]?.content.includes("[error]");
+  const errorText = hasError
+    ? (messages[messages.length - 1].content.match(/\[error\] (.+)/) ?? [])[1] ?? ""
+    : "";
+  const isConnectionError =
+    errorText === "" ||
+    errorText.toLowerCase().includes("fetch") ||
+    errorText.toLowerCase().includes("failed") ||
+    errorText.toLowerCase().includes("network");
 
   return (
     <div className="h-full flex flex-col bg-slate-900">
-      <header className="px-3 py-2 border-b border-slate-700 text-sm font-semibold text-slate-100">
-        AI Browser Agent
+      <header className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
+        <span className="text-sm font-semibold text-slate-100">AI Browser Agent</span>
+        {messages.length > 0 && (
+          <button
+            type="button"
+            onClick={clear}
+            disabled={pending}
+            className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Clear
+          </button>
+        )}
       </header>
       <PageContextBadge
         content={content}
@@ -48,7 +66,8 @@ export function ChatPanel() {
       </div>
       {hasError && (
         <div className="px-3 py-1.5 text-xs bg-rose-900/40 text-rose-300 border-t border-rose-700">
-          Something went wrong. Make sure the FastAPI server is running on :8000.
+          {errorText || "Something went wrong."}
+          {isConnectionError && " Make sure the FastAPI server is running on :8000."}
         </div>
       )}
       <form onSubmit={onSubmit} className="border-t border-slate-700 p-2 flex gap-2 bg-slate-900">

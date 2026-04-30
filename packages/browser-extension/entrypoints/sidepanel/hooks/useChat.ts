@@ -59,6 +59,12 @@ export function useChat() {
     setPending(false);
   }, []);
 
+  const clear = useCallback(() => {
+    setMessages([]);
+    setPending(false);
+    assistantIdRef.current = null;
+  }, []);
+
   const send = useCallback(
     async (text: string, includePage: boolean) => {
       if (!text.trim() || pending || !portRef.current) return;
@@ -72,5 +78,5 @@ export function useChat() {
     [pending],
   );
 
-  return { messages, pending, send, cancel };
+  return { messages, pending, send, cancel, clear };
 }

@@ -52,7 +52,7 @@ async def mock_stream(message: str, page: Optional[PageContent], turn: int = 0) 
         if selector:
             yield json.dumps({"type": "text", "content": "Filling in the email/username field. "})
             await asyncio.sleep(0.05)
-            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "test"}})
+            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "test", "description": "email/username field"}})
             await asyncio.sleep(0.05)
             yield json.dumps({"type": "done", "completed": False})
         else:
@@ -64,7 +64,7 @@ async def mock_stream(message: str, page: Optional[PageContent], turn: int = 0) 
         if selector:
             yield json.dumps({"type": "text", "content": "Filling in the password field. "})
             await asyncio.sleep(0.05)
-            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "test"}})
+            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "test", "description": "password field"}})
             await asyncio.sleep(0.05)
             yield json.dumps({"type": "done", "completed": False})
         else:
@@ -76,7 +76,7 @@ async def mock_stream(message: str, page: Optional[PageContent], turn: int = 0) 
         if selector:
             yield json.dumps({"type": "text", "content": "Clicking the submit button. "})
             await asyncio.sleep(0.05)
-            yield json.dumps({"type": "action", "action": {"kind": "click", "selector": selector}})
+            yield json.dumps({"type": "action", "action": {"kind": "click", "selector": selector, "description": "submit button"}})
             await asyncio.sleep(0.05)
             yield json.dumps({"type": "done", "completed": True})
         else:

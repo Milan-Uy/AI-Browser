@@ -4,17 +4,51 @@ import {
   sendToTab,
   type AppMessage,
   type LLMAction,
+  type PageContent,
+  type TurnActionRecord,
   type TurnRecord,
 } from "@/lib/messaging";
 import { streamChat } from "@/lib/api-client";
-import { validateAction, createRateLimiter } from "@/lib/security";
+import { validateAction, createRateLimiter, isNoopNavigation } from "@/lib/security";
 
 const BACKEND_URL = "http://localhost:8000/chat";
 const MAX_TURNS = 10;
 
-type Pending = {
-  resolve: (approved: boolean) => void;
-};
+async function fetchPageContent(
+  tabId: number,
+  attempts = 5,
+  delayMs = 200,
+): Promise<PageContent | null> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = (await sendToTab(tabId, "GET_PAGE_CONTENT", undefined)) as AppMessage | null;
+      if (res && isMessageOfKind(res, "PAGE_CONTENT_RESULT")) return res.payload.content;
+    } catch {
+      // content script may not be attached yet (e.g. mid-navigation)
+    }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
+}
+
+function describeAction(action: LLMAction): string {
+  const d = action.description;
+  switch (action.kind) {
+    case "click":
+      return d ? `Clicked ${d}` : "Clicked element";
+    case "fill":
+      return d ? `Typed '${action.value}' into ${d}` : `Typed '${action.value}'`;
+    case "scroll": {
+      const dir = action.direction ?? "down";
+      const amt = action.amount != null ? ` by ${action.amount}` : "";
+      return d ? `Scrolled ${dir}${amt} on ${d}` : `Scrolled ${dir}${amt}`;
+    }
+    case "navigate":
+      return `Navigated to ${action.url}`;
+    case "select":
+      return d ? `Selected '${action.value}' in ${d}` : `Selected '${action.value}'`;
+  }
+}
 
 export default defineBackground(() => {
   chrome.sidePanel
@@ -26,65 +60,35 @@ export default defineBackground(() => {
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== "chat") return;
     const controller = new AbortController();
-    const pending = new Map<string, Pending>();
     let aborted = false;
 
     port.onDisconnect.addListener(() => {
       aborted = true;
       controller.abort();
-      for (const p of pending.values()) p.resolve(false);
-      pending.clear();
     });
 
-    const waitForRunApproval = (requestId: string, prompt: string) =>
-      new Promise<boolean>((resolve) => {
-        pending.set(requestId, { resolve });
-        port.postMessage(makeMessage("CONFIRM_RUN", { requestId, prompt }));
-      });
-
     port.onMessage.addListener(async (msg: AppMessage) => {
-      if (isMessageOfKind(msg, "RUN_APPROVED")) {
-        const p = pending.get(msg.payload.requestId);
-        if (p) {
-          pending.delete(msg.payload.requestId);
-          p.resolve(msg.payload.approved);
-        }
-        return;
-      }
       if (!isMessageOfKind(msg, "CHAT_MESSAGE")) return;
 
       const requestId = Math.random().toString(36).slice(2);
-
-      const approved = await waitForRunApproval(requestId, msg.payload.text);
-      if (!approved || aborted) {
-        port.postMessage(
-          makeMessage("STREAM_CHUNK", {
-            requestId,
-            chunk: { type: "done", completed: true },
-          }),
-        );
-        return;
-      }
+      if (aborted) return;
 
       const history: TurnRecord[] = [];
 
       for (let turn = 0; turn < MAX_TURNS; turn++) {
         if (aborted) break;
 
-        let page = null;
+        let page: PageContent | null = null;
         if (msg.payload.includePage) {
           const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          if (tab?.id) {
-            const res = (await sendToTab(tab.id, "GET_PAGE_CONTENT", undefined)) as AppMessage | null;
-            if (res && isMessageOfKind(res, "PAGE_CONTENT_RESULT")) page = res.payload.content;
-          }
+          if (tab?.id) page = await fetchPageContent(tab.id);
         }
 
         console.groupCollapsed(`[agent] turn ${turn} → backend`);
         console.log({ message: msg.payload.text, page, history });
         console.groupEnd();
 
-        const turnActions: LLMAction[] = [];
+        const turnActions: TurnActionRecord[] = [];
         let completed = false;
 
         try {
@@ -109,28 +113,40 @@ export default defineBackground(() => {
               await rateLimiter.acquire();
               const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
               if (!tab?.id) continue;
+              if (
+                chunk.action.kind === "navigate" &&
+                tab.url &&
+                isNoopNavigation(chunk.action.url, tab.url)
+              ) {
+                continue;
+              }
               const actionId = `${requestId}-${Math.random().toString(36).slice(2, 8)}`;
-              const res = (await sendToTab(tab.id, "EXECUTE_ACTION", {
-                requestId: actionId,
-                action: chunk.action,
-              })) as AppMessage | null;
-              const ok =
-                res && isMessageOfKind(res, "EXECUTE_ACTION_RESULT") && res.payload.result.ok;
+              let res: AppMessage | null = null;
+              try {
+                res = (await sendToTab(tab.id, "EXECUTE_ACTION", {
+                  requestId: actionId,
+                  action: chunk.action,
+                })) as AppMessage | null;
+              } catch {
+                res = null;
+              }
+              const result =
+                res && isMessageOfKind(res, "EXECUTE_ACTION_RESULT")
+                  ? res.payload.result
+                  : { ok: false, message: "content script not reachable" };
+              const ok = result.ok;
               port.postMessage(
                 makeMessage("STREAM_CHUNK", {
                   requestId,
                   chunk: {
                     type: "text",
                     content: ok
-                      ? `\n[action executed ✓]\n`
-                      : `\n[action failed: ${
-                          (res && isMessageOfKind(res, "EXECUTE_ACTION_RESULT") && res.payload.result.message) ||
-                          "unknown"
-                        }]\n`,
+                      ? `\n[${describeAction(chunk.action)} ✓]\n`
+                      : `\n[action failed: ${result.message ?? "unknown"}]\n`,
                   },
                 }),
               );
-              if (ok) turnActions.push(chunk.action);
+              turnActions.push({ action: chunk.action, result });
             } else if (chunk.type === "done") {
               completed = chunk.completed ?? true;
               break;

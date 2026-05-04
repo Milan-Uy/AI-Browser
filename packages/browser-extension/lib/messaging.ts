@@ -15,14 +15,24 @@ export interface PageContent {
 }
 
 export type LLMAction =
-  | { kind: "click"; selector: string }
-  | { kind: "fill"; selector: string; value: string }
-  | { kind: "scroll"; selector?: string; direction?: "up" | "down" | "top" | "bottom"; amount?: number }
-  | { kind: "navigate"; url: string }
-  | { kind: "select"; selector: string; value: string };
+  | { kind: "click"; selector: string; description?: string }
+  | { kind: "fill"; selector: string; value: string; description?: string }
+  | { kind: "scroll"; selector?: string; direction?: "up" | "down" | "top" | "bottom"; amount?: number; description?: string }
+  | { kind: "navigate"; url: string; description?: string }
+  | { kind: "select"; selector: string; value: string; description?: string };
+
+export interface ActionResult {
+  ok: boolean;
+  message?: string;
+}
+
+export interface TurnActionRecord {
+  action: LLMAction;
+  result: ActionResult;
+}
 
 export interface TurnRecord {
-  actions: LLMAction[];
+  actions: TurnActionRecord[];
   page: PageContent | null;
 }
 
@@ -32,18 +42,11 @@ export type StreamChunk =
   | { type: "done"; completed?: boolean }
   | { type: "error"; message: string };
 
-export interface ActionResult {
-  ok: boolean;
-  message?: string;
-}
-
 type Payloads = {
   GET_PAGE_CONTENT: void;
   PAGE_CONTENT_RESULT: { content: PageContent };
   CHAT_MESSAGE: { text: string; includePage: boolean };
   STREAM_CHUNK: { requestId: string; chunk: StreamChunk };
-  CONFIRM_RUN: { requestId: string; prompt: string };
-  RUN_APPROVED: { requestId: string; approved: boolean };
   EXECUTE_ACTION: { requestId: string; action: LLMAction };
   EXECUTE_ACTION_RESULT: { requestId: string; result: ActionResult };
 };

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { executeAction } from "../dom-actions";
+import { executeAction, waitForElement } from "../dom-actions";
 
 describe("dom-actions.executeAction", () => {
   beforeEach(() => {
@@ -40,5 +40,20 @@ describe("dom-actions.executeAction", () => {
     const res = await executeAction({ kind: "click", selector: "#missing" });
     expect(res.ok).toBe(false);
     expect(res.message).toMatch(/not found/i);
+  });
+
+  it("waits for an element that appears after a delay", async () => {
+    document.body.innerHTML = "";
+    setTimeout(() => {
+      document.body.innerHTML = '<button id="late">Go</button>';
+    }, 100);
+    const res = await executeAction({ kind: "click", selector: "#late" });
+    expect(res.ok).toBe(true);
+  });
+
+  it("times out when the element never appears", async () => {
+    document.body.innerHTML = "";
+    const result = await waitForElement("#never", 50);
+    expect(result).toBeNull();
   });
 });

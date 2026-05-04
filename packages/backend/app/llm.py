@@ -58,6 +58,107 @@ class LLMBackend(Protocol):
     ) -> AsyncIterator[str]: ...
 
 
+def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord]) -> str:
+    prompt_lines: list[str] = [
+        "You are an AI browser assistant. The user gives you a task and you "
+        "either answer it directly or perform browser actions to accomplish it.",
+        "",
+        "To perform a browser action, output a line in this exact format (JSON on one line).",
+        'Include a short "description" field with a human-readable label for the element (e.g. "sign in button", "email field"):',
+        '  ACTION: {"kind": "click", "selector": "#submit", "description": "sign in button"}',
+        '  ACTION: {"kind": "fill", "selector": "#email", "value": "user@example.com", "description": "email field"}',
+        '  ACTION: {"kind": "navigate", "url": "https://example.com"}',
+        '  ACTION: {"kind": "scroll", "direction": "down", "amount": 300}',
+        '  ACTION: {"kind": "select", "selector": "#dropdown", "value": "option1", "description": "dropdown"}',
+        "",
+        "At the very end of your response, output exactly one of these lines:",
+        "  DONE: true   (task is complete — no further turns needed)",
+        "  DONE: false  (more turns are needed to finish the task)",
+        "",
+    ]
+
+    if page:
+        prompt_lines += [
+            "## Current page",
+            f"URL: {page.url}",
+            f"Title: {page.title}",
+        ]
+        if page.selection:
+            prompt_lines.append(f"Selected text: {page.selection}")
+        page_text = page.text[:3000] + ("\n[...truncated...]" if len(page.text) > 3000 else "")
+        prompt_lines += [f"Page text:\n{page_text}", ""]
+        if page.elements:
+            prompt_lines.append("Interactive elements (use these selectors for actions):")
+            for el in page.elements:
+                parts = [f"selector={el.selector!r}", f"tag={el.tag!r}"]
+                if el.type:
+                    parts.append(f"type={el.type!r}")
+                if el.placeholder:
+                    parts.append(f"placeholder={el.placeholder!r}")
+                if el.text:
+                    parts.append(f"text={el.text!r}")
+                prompt_lines.append("  - " + ", ".join(parts))
+            prompt_lines.append("")
+
+    if history:
+        prompt_lines.append("## Prior turns")
+        for i, rec in enumerate(history):
+            prompt_lines.append(f"Turn {i}:")
+            for act in rec.actions:
+                prompt_lines.append(f"  Action taken: {json.dumps(act.model_dump())}")
+        prompt_lines.append("")
+
+    return "\n".join(prompt_lines)
+
+
+def _build_prompt(message: str, page: Optional[PageContent], history: List[TurnRecord]) -> str:
+    return _build_system_prompt(page, history) + "\n## Task\n" + message
+
+
+def _build_gauss_contents(message: str, history: List[TurnRecord]) -> List[str]:
+    """Build the alternating user/model contents list for the Gauss API.
+
+    Each prior TurnRecord contributes a user turn (the original message) and a
+    model turn (reconstructed ACTION lines + DONE: false). When history is
+    empty, returns [message].
+    """
+    contents: List[str] = []
+    for turn in history:
+        contents.append(message)
+        model_lines = [
+            "ACTION: " + json.dumps(act.action.model_dump(exclude_none=True))
+            for act in turn.actions
+        ]
+        model_lines.append("DONE: false")
+        contents.append("\n".join(model_lines))
+    contents.append(message)
+    return contents
+
+
+def _parse_model_line(line: str, actions: list) -> tuple[Optional[str], Optional[bool]]:
+    """Parse one line of model output. Returns (chunk_to_yield, completed_value).
+
+    - If the line is `ACTION: {...}`, append to `actions` and return a JSON action chunk.
+    - If the line is `DONE: true|false`, return the parsed bool as completed.
+    - Otherwise return a JSON text chunk.
+    Either return value may be None.
+    """
+    stripped = line.strip()
+    if stripped.startswith("ACTION:"):
+        action_json = stripped[len("ACTION:"):].strip()
+        try:
+            action_obj = json.loads(action_json)
+            actions.append(action_obj)
+            return json.dumps({"type": "action", "action": action_obj}), None
+        except json.JSONDecodeError:
+            return json.dumps({"type": "text", "content": line}), None
+    if stripped.upper().startswith("DONE:"):
+        return None, stripped[5:].strip().lower() == "true"
+    if line:
+        return json.dumps({"type": "text", "content": line}), None
+    return None, None
+
+
 class MockLLM:
     name = "mock"
 
@@ -110,57 +211,7 @@ class GeminiLLM:
         actions: list = []
         completed = False
 
-        prompt_lines: list[str] = [
-            "You are an AI browser assistant. The user gives you a task and you "
-            "either answer it directly or perform browser actions to accomplish it.",
-            "",
-            "To perform a browser action, output a line in this exact format (JSON on one line):",
-            '  ACTION: {"kind": "click", "selector": "#submit"}',
-            '  ACTION: {"kind": "fill", "selector": "#email", "value": "user@example.com"}',
-            '  ACTION: {"kind": "navigate", "url": "https://example.com"}',
-            '  ACTION: {"kind": "scroll", "direction": "down", "amount": 300}',
-            '  ACTION: {"kind": "select", "selector": "#dropdown", "value": "option1"}',
-            "",
-            "At the very end of your response, output exactly one of these lines:",
-            "  DONE: true   (task is complete — no further turns needed)",
-            "  DONE: false  (more turns are needed to finish the task)",
-            "",
-        ]
-
-        if page:
-            prompt_lines += [
-                "## Current page",
-                f"URL: {page.url}",
-                f"Title: {page.title}",
-            ]
-            if page.selection:
-                prompt_lines.append(f"Selected text: {page.selection}")
-            page_text = page.text[:3000] + ("\n[...truncated...]" if len(page.text) > 3000 else "")
-            prompt_lines += [f"Page text:\n{page_text}", ""]
-            if page.elements:
-                prompt_lines.append("Interactive elements (use these selectors for actions):")
-                for el in page.elements:
-                    parts = [f"selector={el.selector!r}", f"tag={el.tag!r}"]
-                    if el.type:
-                        parts.append(f"type={el.type!r}")
-                    if el.placeholder:
-                        parts.append(f"placeholder={el.placeholder!r}")
-                    if el.text:
-                        parts.append(f"text={el.text!r}")
-                    prompt_lines.append("  - " + ", ".join(parts))
-                prompt_lines.append("")
-
-        if history:
-            prompt_lines.append("## Prior turns")
-            for i, rec in enumerate(history):
-                prompt_lines.append(f"Turn {i}:")
-                for act in rec.actions:
-                    prompt_lines.append(f"  Action taken: {json.dumps(act.model_dump())}")
-            prompt_lines.append("")
-
-        prompt_lines += ["## Task", message]
-        prompt = "\n".join(prompt_lines)
-
+        prompt = _build_prompt(message, page, history)
         model = genai.GenerativeModel("gemini-2.0-flash")
 
         async def _gen() -> AsyncIterator[str]:
@@ -169,33 +220,223 @@ class GeminiLLM:
             async for chunk in response:
                 chunk_text = chunk.text if chunk.text else ""
                 for line in chunk_text.splitlines(keepends=True):
-                    stripped = line.strip()
-                    if stripped.startswith("ACTION:"):
-                        action_json = stripped[len("ACTION:"):].strip()
-                        try:
-                            action_obj = json.loads(action_json)
-                            actions.append(action_obj)
-                            yield json.dumps({"type": "action", "action": action_obj})
-                        except json.JSONDecodeError:
-                            yield json.dumps({"type": "text", "content": line})
-                    elif stripped.upper().startswith("DONE:"):
-                        done_val = stripped[5:].strip().lower()
-                        completed = done_val == "true"
-                    elif line:
-                        yield json.dumps({"type": "text", "content": line})
+                    out, done_val = _parse_model_line(line, actions)
+                    if out is not None:
+                        yield out
+                    if done_val is not None:
+                        completed = done_val
             yield json.dumps({"type": "done", "completed": completed})
             _log_response(self.name, turn, actions, completed)
 
         return _gen()
 
 
+class GaussLLM:
+    """Backend for the Gauss OpenAPI LLM (POST /openapi/chat/v1/messages).
+
+    Required env:
+      AIB_LLM_BACKEND=gauss
+      AIB_GAUSS_API_URL=https://your-gauss-host.example.com    (no trailing slash)
+      AIB_GAUSS_CLIENT=<x-generative-ai-client header value>
+      AIB_GAUSS_TOKEN=<x-openapi-token header value>
+      AIB_GAUSS_MODEL_IDS=model-id-a,model-id-b                (comma-separated)
+
+    Optional env:
+      AIB_GAUSS_USER_EMAIL=<x-generative-ai-user-email header>
+      AIB_GAUSS_ENDPOINT_PATH=/openapi/chat/v1/messages         (override if different)
+      AIB_GAUSS_STREAM=1                                        (default: 1; set 0 for non-stream)
+    """
+
+    name = "gauss"
+
+    async def stream(
+        self,
+        message: str,
+        page: Optional[PageContent],
+        history: List[TurnRecord],
+    ) -> AsyncIterator[str]:
+        import httpx  # deferred: only needed when backend=gauss
+
+        api_url = os.environ.get("AIB_GAUSS_API_URL", "").rstrip("/")
+        client_id = os.environ.get("AIB_GAUSS_CLIENT", "")
+        token = os.environ.get("AIB_GAUSS_TOKEN", "")
+        model_ids_raw = os.environ.get("AIB_GAUSS_MODEL_IDS", "")
+        endpoint_path = os.environ.get("AIB_GAUSS_ENDPOINT_PATH", "/openapi/chat/v1/messages")
+        user_email = os.environ.get("AIB_GAUSS_USER_EMAIL", "")
+        stream_enabled = os.environ.get("AIB_GAUSS_STREAM", "1").lower() not in ("0", "false", "")
+
+        missing = [
+            name for name, val in (
+                ("AIB_GAUSS_API_URL", api_url),
+                ("AIB_GAUSS_CLIENT", client_id),
+                ("AIB_GAUSS_TOKEN", token),
+                ("AIB_GAUSS_MODEL_IDS", model_ids_raw),
+            ) if not val
+        ]
+        if missing:
+            raise ValueError(
+                f"Missing required Gauss env vars: {', '.join(missing)}. "
+                "Add them to packages/backend/.env."
+            )
+
+        model_ids = [m.strip() for m in model_ids_raw.split(",") if m.strip()]
+        if not model_ids:
+            raise ValueError("AIB_GAUSS_MODEL_IDS must contain at least one model id.")
+
+        turn = len(history)
+        _log_request(self.name, turn, message, page, history)
+        actions: list = []
+        completed = False
+
+        system_prompt = _build_system_prompt(page, history)
+
+        endpoint = f"{api_url}{endpoint_path}"
+        headers = {
+            "Content-Type": "application/json",
+            "x-generative-ai-client": client_id,
+            "x-openapi-token": token,
+        }
+        if user_email:
+            headers["x-generative-ai-user-email"] = user_email
+
+        body: dict = {
+            "modelIds": model_ids,
+            "contents": _build_gauss_contents(message, history),
+            "isStream": stream_enabled,
+            "systemPrompt": system_prompt,
+        }
+
+        async def _gen() -> AsyncIterator[str]:
+            nonlocal completed
+            buffer = ""
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                if stream_enabled:
+                    async with client.stream("POST", endpoint, headers=headers, json=body) as resp:
+                        resp.raise_for_status()
+                        async for raw_line in resp.aiter_lines():
+                            content_piece, error_msg = _extract_gauss_chunk_text(raw_line)
+                            if error_msg:
+                                yield json.dumps({"type": "error", "message": error_msg})
+                                return
+                            if not content_piece:
+                                continue
+                            buffer += content_piece
+                            while "\n" in buffer:
+                                line_part, _, buffer = buffer.partition("\n")
+                                out, done_val = _parse_model_line(line_part + "\n", actions)
+                                if out is not None:
+                                    yield out
+                                if done_val is not None:
+                                    completed = done_val
+                else:
+                    resp = await client.post(endpoint, headers=headers, json=body)
+                    resp.raise_for_status()
+                    obj = resp.json()
+                    filter_block_reason = obj.get("filter_block_reason")
+                    if _is_gauss_filter_blocked(filter_block_reason):
+                        yield json.dumps({"type": "error", "message": f"Response blocked: filter_block_reason={filter_block_reason!r}"})
+                        return
+                    response_code = obj.get("response_code")
+                    if not _is_gauss_response_ok(response_code):
+                        yield json.dumps({"type": "error", "message": f"Gauss API error: response_code={response_code}"})
+                        return
+                    status = obj.get("status")
+                    if "status" in obj and status not in _GAUSS_OK_STATUSES:
+                        yield json.dumps({"type": "error", "message": f"Gauss API error: status={status!r}"})
+                        return
+                    buffer = obj.get("content", "") or ""
+            if buffer.strip():
+                out, done_val = _parse_model_line(buffer, actions)
+                if out is not None:
+                    yield out
+                if done_val is not None:
+                    completed = done_val
+            yield json.dumps({"type": "done", "completed": completed})
+            _log_response(self.name, turn, actions, completed)
+
+        return _gen()
+
+
+_GAUSS_OK_STATUSES = {None, "ok", "OK", "success", "SUCCESS"}
+
+
+def _is_gauss_response_ok(code: object) -> bool:
+    if code is None or code in (0, 200):
+        return True
+    if isinstance(code, str) and code.startswith("R2"):
+        return True
+    return False
+
+
+def _is_gauss_filter_blocked(value: object) -> bool:
+    """Return True only when the Gauss filter_block_reason indicates actual blocking.
+
+    The field is always present as a result object. A result_code ending in
+    '200' (e.g. 'FR-200') means the filter passed; only flag as blocked when
+    there is a meaningful indicator such as a non-success result_code, a
+    non-None policy_id, or a non-None message.
+    """
+    if not value:
+        return False
+    if isinstance(value, str):
+        return True
+    if isinstance(value, dict):
+        result_code = value.get("result_code", "")
+        if isinstance(result_code, str) and result_code.endswith("200"):
+            return False
+        return bool(value.get("policy_id") or value.get("message"))
+    return bool(value)
+
+
+def _extract_gauss_chunk_text(raw_line: str) -> tuple[str, Optional[str]]:
+    """Extract one text chunk from a streamed Gauss response line.
+
+    Stream format: one JSON object per line, optionally SSE-wrapped as
+    `data: {...}`. Field names are snake_case in stream mode. The text
+    payload lives in `content`.
+
+    Returns (text_piece, error_message). error_message is None on success;
+    when set, text_piece is always "".
+    """
+    if not raw_line:
+        return "", None
+    line = raw_line[5:].strip() if raw_line.startswith("data:") else raw_line.strip()
+    if line in ("", "[DONE]"):
+        return "", None
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return "", None
+
+    filter_block_reason = obj.get("filter_block_reason")
+    if _is_gauss_filter_blocked(filter_block_reason):
+        return "", f"Response blocked: filter_block_reason={filter_block_reason!r}"
+
+    response_code = obj.get("response_code")
+    if not _is_gauss_response_ok(response_code):
+        return "", f"Gauss API error: response_code={response_code}"
+
+    status = obj.get("status")
+    if "status" in obj and status not in _GAUSS_OK_STATUSES:
+        return "", f"Gauss API error: status={status!r}"
+
+    if obj.get("finish_reason") == "length":
+        logger.warning(json.dumps({
+            "event": "gauss_truncated",
+            "message": "Response truncated by token limit (finish_reason=length)",
+        }))
+
+    return obj.get("content", "") or "", None
+
+
 _BACKENDS: dict[str, type] = {
     "mock": MockLLM,
     "gemini": GeminiLLM,
+    "gauss": GaussLLM,
 }
 
 
-def get_llm() -> MockLLM | GeminiLLM:
+def get_llm() -> MockLLM | GeminiLLM | GaussLLM:
     name = os.environ.get("AIB_LLM_BACKEND", "mock").lower()
     cls = _BACKENDS.get(name)
     if cls is None:

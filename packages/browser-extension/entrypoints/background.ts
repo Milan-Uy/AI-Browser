@@ -168,7 +168,7 @@ export default defineBackground(() => {
           break;
         }
 
-        history.push({ actions: turnActions, page });
+        history.push({ message: msg.payload.text, actions: turnActions, page });
 
         if (completed || turnActions.length === 0) break;
       }

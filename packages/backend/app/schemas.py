@@ -66,6 +66,7 @@ class TurnActionRecord(BaseModel):
 
 
 class TurnRecord(BaseModel):
+    message: str
     actions: List[TurnActionRecord] = Field(default_factory=list)
     page: Optional[PageContent] = None
 

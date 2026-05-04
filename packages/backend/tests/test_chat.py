@@ -69,6 +69,7 @@ async def test_chat_multi_turn_login_sequence() -> None:
         assert actions0[0]["value"] == "test"
         assert turn0[-1]["completed"] is False
         history.append({
+            "message": "login",
             "actions": [{"action": a, "result": {"ok": True}} for a in actions0],
             "page": LOGIN_PAGE,
         })
@@ -83,6 +84,7 @@ async def test_chat_multi_turn_login_sequence() -> None:
         assert actions1[0]["value"] == "test"
         assert turn1[-1]["completed"] is False
         history.append({
+            "message": "login",
             "actions": [{"action": a, "result": {"ok": True}} for a in actions1],
             "page": LOGIN_PAGE,
         })
@@ -238,6 +240,7 @@ async def test_gauss_backend_multi_turn_contents(monkeypatch: pytest.MonkeyPatch
 
     history = [
         {
+            "message": "login",
             "actions": [
                 {
                     "action": {"kind": "fill", "selector": "#email", "value": "user@example.com"},

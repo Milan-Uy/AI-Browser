@@ -62,7 +62,7 @@ Side Panel (React)  ←── chrome.runtime.Port "chat" ──→  Background S
 ```
 
 - **Side Panel** (`entrypoints/sidepanel/`) — React UI. Opens as Chrome side panel. Communicates with background exclusively via a long-lived `chrome.runtime.Port` named `"chat"`.
-- **Background SW** (`entrypoints/background.ts`) — Orchestrator. Owns the agent loop: asks for one-time run approval, then loops up to 10 turns — fetches `PageContent`, calls `POST /chat`, executes actions through the validate/rate-limit pipeline, accumulates `TurnRecord` history for the next turn. Stops when backend signals `completed: true` or no actions were executed.
+- **Background SW** (`entrypoints/background.ts`) — Orchestrator. Owns the agent loop: loops up to 10 turns — fetches `PageContent`, calls `POST /chat`, executes actions through the validate/rate-limit pipeline, accumulates `TurnRecord` history for the next turn. Stops when backend signals `completed: true` or no actions were executed.
 - **Content Script** (`entrypoints/content.ts`) — DOM reader and actuator. Responds to `GET_PAGE_CONTENT` (runs extractor) and `EXECUTE_ACTION` (runs action dispatcher).
 
 ### Typed message protocol (`lib/messaging.ts`)
@@ -84,7 +84,7 @@ Key shared types: `PageContent`, `InteractiveElement`, `LLMAction`, `TurnRecord`
 On each `CHAT_MESSAGE`, background runs this pipeline (max 10 turns):
    - Fetch `PageContent` from active tab (retries up to 5× to handle mid-navigation).
    - `POST /chat` with `{ message, page, history }`, stream response.
-   - For each `action` chunk: `validateAction()` (URL scheme allowlist, selector deny-list) → `rateLimiter.acquire()` (500 ms minimum) → `sendToTab(EXECUTE_ACTION)` → content script → `executeAction()` in `lib/dom-actions.ts`.
+   - For each `action` chunk: `validateAction()` (URL scheme allowlist, selector deny-list) + `isNoopNavigation()` check (skip navigate if already on that URL) → `rateLimiter.acquire()` (500 ms minimum) → `sendToTab(EXECUTE_ACTION)` → content script → `executeAction()` in `lib/dom-actions.ts`.
    - On `done` chunk: if `completed === true` or no actions executed this turn, exit loop. Otherwise push `TurnRecord` onto history and continue.
 
 ### Agent API (`lib/api-client.ts`)
@@ -98,7 +98,7 @@ On each `CHAT_MESSAGE`, background runs this pipeline (max 10 turns):
 LLM abstraction lives in `app/llm.py`:
 - `get_llm()` reads `AIB_LLM_BACKEND` and returns the appropriate backend.
 - `MockLLM` wraps `mock_stream()` in `mock_llm.py` — turn-aware: turn 0 fills email/username, turn 1 fills password, turn 2 clicks submit.
-- `GeminiLLM` stub — raises `NotImplementedError`; implement `GeminiLLM.stream()` and set `AIB_LLM_BACKEND=gemini` + `GEMINI_API_KEY`.
+- `GeminiLLM` — full implementation using `gemini-2.0-flash`; set `AIB_LLM_BACKEND=gemini` + `GEMINI_API_KEY`.
 - `GaussLLM` — full implementation for the Gauss OpenAPI LLM; set `AIB_LLM_BACKEND=gauss` and `AIB_GAUSS_*` vars (URL, client, token, model IDs — see `.env.example`).
 - All backends log structured JSON (`llm_request` / `llm_response`) to stdout per turn.
 

@@ -113,7 +113,7 @@ Chrome MV3 extension. WXT generates the manifest from `wxt.config.ts` and each f
 | `api-client.ts` | `streamChat()` async generator — POSTs a `ChatRequest` (`message`, `page`, `history`) and yields parsed SSE `StreamChunk`s. |
 | `page-extractor.ts` | DOM snapshot: `extractPageContent()` (URL, title, text, selection, interactive elements) and `buildUniqueSelector()`. |
 | `dom-actions.ts` | `executeAction()` dispatcher for `click` / `fill` / `select` / `scroll` / `navigate`. |
-| `security.ts` | `validateAction()` (URL scheme allowlist, selector deny-list) and `createRateLimiter()`. |
+| `security.ts` | `validateAction()` (URL scheme allowlist, selector deny-list), `isNoopNavigation()` (skip same-URL navigates), and `createRateLimiter()`. |
 | `__tests__/` | Vitest suites — one file per `lib/` module. |
 
 ### `public/`
@@ -139,9 +139,9 @@ FastAPI server exposing a streaming `/chat` endpoint. LLM logic is behind a plug
 | Path | Purpose |
 |------|---------|
 | `main.py` | `create_app()` factory; logging config; CORS (restricted to `chrome-extension://*`); `GET /healthz`; `POST /chat` → calls `get_llm().stream()` and returns `EventSourceResponse`. |
-| `llm.py` | `LLMBackend` protocol; `MockLLM` (wraps `mock_stream`, logs each turn); `GeminiLLM` stub (`NotImplementedError`); `GaussLLM` (Gauss OpenAPI LLM, `AIB_LLM_BACKEND=gauss`); `get_llm()` factory keyed on `AIB_LLM_BACKEND`. Emits structured JSON `llm_request`/`llm_response` log lines per turn. |
+| `llm.py` | `LLMBackend` protocol; `MockLLM` (wraps `mock_stream`, logs each turn); `GeminiLLM` (`gemini-2.0-flash`, full implementation); `GaussLLM` (Gauss OpenAPI LLM, `AIB_LLM_BACKEND=gauss`); `get_llm()` factory keyed on `AIB_LLM_BACKEND`. Emits structured JSON `llm_request`/`llm_response` log lines per turn. |
 | `mock_llm.py` | `mock_stream(message, page, turn)` async generator. Turn-aware: turn 0 fills email/username field, turn 1 fills password field, turn 2 clicks submit button. Each non-final turn emits `completed: false`; the last emits `completed: true`. |
-| `schemas.py` | Pydantic models: `ChatRequest` (with `history: List[TurnRecord]`), `PageContent`, `InteractiveElement`, `TurnRecord`, and the `Action` union (`ClickAction`, `FillAction`, `ScrollAction`, `NavigateAction`, `SelectAction`). |
+| `schemas.py` | Pydantic models: `ChatRequest` (with `history: List[TurnRecord]`), `PageContent`, `InteractiveElement`, `TurnRecord` (includes `message: str` for multi-turn history), `TurnActionRecord`, and the `Action` union (`ClickAction`, `FillAction`, `ScrollAction`, `NavigateAction`, `SelectAction`). |
 
 ### `tests/`
 

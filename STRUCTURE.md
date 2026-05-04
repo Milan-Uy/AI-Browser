@@ -83,7 +83,7 @@ Chrome MV3 extension. WXT generates the manifest from `wxt.config.ts` and each f
 
 | Path | Purpose |
 |------|---------|
-| `background.ts` | Orchestrator service worker. Asks for one-time run approval, then loops up to 10 turns: fetches page content, POSTs to backend with accumulated `history`, parses SSE chunks, validates + rate-limits actions, dispatches to content script, accumulates `TurnRecord`. Exits when backend signals `completed: true` or a turn produces no actions. |
+| `background.ts` | Orchestrator service worker. Loops up to 10 turns: fetches page content, POSTs to backend with accumulated `history`, parses SSE chunks, validates + rate-limits actions, dispatches to content script, accumulates `TurnRecord`. Exits when backend signals `completed: true` or a turn produces no actions. |
 | `content.ts` | Per-tab content script (matches `<all_urls>`, `document_idle`). Handles `GET_PAGE_CONTENT` (runs the extractor) and `EXECUTE_ACTION` (runs the action dispatcher). |
 | `sidepanel/index.html` | HTML shell for the side panel. |
 | `sidepanel/main.tsx` | Mounts `<App/>` to `#root`. |
@@ -96,14 +96,13 @@ Chrome MV3 extension. WXT generates the manifest from `wxt.config.ts` and each f
 |------|---------|
 | `ChatPanel.tsx` | Top-level UI: message feed, input form, page-context badge, run-confirm dialog. |
 | `MessageBubble.tsx` | Renders a single message; streams tokens as they arrive. |
-| `ActionConfirmDialog.tsx` | Exports `RunConfirmDialog` — one-time Run/Cancel prompt shown at the start of each agent run. |
 | `PageContextBadge.tsx` | Shows page title / URL / element count with a Refresh button and include-page toggle. |
 
 #### `entrypoints/sidepanel/hooks/`
 
 | Path | Purpose |
 |------|---------|
-| `useChat.ts` | Owns the chat port, message list, pending state, and `pendingRun`. Exposes `send()` and `approveRun()`. |
+| `useChat.ts` | Owns the chat port, message list, and pending state. Exposes `send()`. |
 | `usePageContent.ts` | Requests a fresh `PageContent` from the active tab; exposes `content`, `loading`, `refresh()`. |
 
 ### `lib/`
@@ -140,7 +139,7 @@ FastAPI server exposing a streaming `/chat` endpoint. LLM logic is behind a plug
 | Path | Purpose |
 |------|---------|
 | `main.py` | `create_app()` factory; logging config; CORS (restricted to `chrome-extension://*`); `GET /healthz`; `POST /chat` → calls `get_llm().stream()` and returns `EventSourceResponse`. |
-| `llm.py` | `LLMBackend` protocol; `MockLLM` (wraps `mock_stream`, logs each turn); `GeminiLLM` stub (`NotImplementedError`); `get_llm()` factory keyed on `AIB_LLM_BACKEND`. Emits structured JSON `llm_request`/`llm_response` log lines per turn. |
+| `llm.py` | `LLMBackend` protocol; `MockLLM` (wraps `mock_stream`, logs each turn); `GeminiLLM` stub (`NotImplementedError`); `GaussLLM` (Gauss OpenAPI LLM, `AIB_LLM_BACKEND=gauss`); `get_llm()` factory keyed on `AIB_LLM_BACKEND`. Emits structured JSON `llm_request`/`llm_response` log lines per turn. |
 | `mock_llm.py` | `mock_stream(message, page, turn)` async generator. Turn-aware: turn 0 fills email/username field, turn 1 fills password field, turn 2 clicks submit button. Each non-final turn emits `completed: false`; the last emits `completed: true`. |
 | `schemas.py` | Pydantic models: `ChatRequest` (with `history: List[TurnRecord]`), `PageContent`, `InteractiveElement`, `TurnRecord`, and the `Action` union (`ClickAction`, `FillAction`, `ScrollAction`, `NavigateAction`, `SelectAction`). |
 
@@ -168,7 +167,7 @@ flowchart LR
         API --> LLM
     end
 
-    SP <-- "runtime.connect('chat')<br/>CHAT_MESSAGE · STREAM_CHUNK<br/>CONFIRM_RUN · RUN_APPROVED" --> BG
+    SP <-- "runtime.connect('chat')<br/>CHAT_MESSAGE · STREAM_CHUNK" --> BG
     BG <-- "tabs.sendMessage<br/>GET_PAGE_CONTENT<br/>EXECUTE_ACTION" --> CS
     BG <-- "fetch + SSE<br/>{ message, page, history }" --> API
 ```

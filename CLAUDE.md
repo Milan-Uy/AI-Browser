@@ -34,7 +34,8 @@ pytest tests/test_chat.py::test_healthz  # Single test
 Backend LLM selection (env var):
 ```bash
 AIB_LLM_BACKEND=mock    # turn-aware mock (default)
-AIB_LLM_BACKEND=gemini  # Gemini — implement GeminiLLM.stream() in app/llm.py
+AIB_LLM_BACKEND=gemini  # Gemini — set GEMINI_API_KEY
+AIB_LLM_BACKEND=gauss   # Gauss OpenAPI LLM — set AIB_GAUSS_* vars (see .env.example)
 ```
 
 LLM request/response logging:
@@ -68,7 +69,7 @@ Side Panel (React)  ←── chrome.runtime.Port "chat" ──→  Background S
 
 All cross-context messages use the `AppMessage` discriminated union keyed by `MessageKind`. Never use raw `chrome.runtime.sendMessage` — use `sendRuntime` / `sendToTab` / `port.postMessage` with `makeMessage`. Use `isMessageOfKind` for type-narrowed dispatch.
 
-The 8 message kinds: `GET_PAGE_CONTENT`, `PAGE_CONTENT_RESULT`, `CHAT_MESSAGE`, `STREAM_CHUNK`, `CONFIRM_RUN`, `RUN_APPROVED`, `EXECUTE_ACTION`, `EXECUTE_ACTION_RESULT`.
+The 6 message kinds: `GET_PAGE_CONTENT`, `PAGE_CONTENT_RESULT`, `CHAT_MESSAGE`, `STREAM_CHUNK`, `EXECUTE_ACTION`, `EXECUTE_ACTION_RESULT`.
 
 Key shared types: `PageContent`, `InteractiveElement`, `LLMAction`, `TurnRecord`, `StreamChunk`, `ActionResult`.
 
@@ -78,13 +79,10 @@ Key shared types: `PageContent`, `InteractiveElement`, `LLMAction`, `TurnRecord`
 - `url`, `title`, `text` (visible text), optional `selection`
 - `elements` — interactive elements, each with `selector`, `tag`, `text`, optional `type` and `placeholder`
 
-### Agent confirmation flow
+### Agent loop
 
-On each `CHAT_MESSAGE`, background runs this pipeline:
-
-1. `waitForRunApproval()` — posts `CONFIRM_RUN` to side panel port; blocks until `RUN_APPROVED` resolves (or port disconnects → auto-deny). **One confirmation per run, not per action.**
-2. Agent loop (max 10 turns):
-   - Fetch `PageContent` from active tab.
+On each `CHAT_MESSAGE`, background runs this pipeline (max 10 turns):
+   - Fetch `PageContent` from active tab (retries up to 5× to handle mid-navigation).
    - `POST /chat` with `{ message, page, history }`, stream response.
    - For each `action` chunk: `validateAction()` (URL scheme allowlist, selector deny-list) → `rateLimiter.acquire()` (500 ms minimum) → `sendToTab(EXECUTE_ACTION)` → content script → `executeAction()` in `lib/dom-actions.ts`.
    - On `done` chunk: if `completed === true` or no actions executed this turn, exit loop. Otherwise push `TurnRecord` onto history and continue.
@@ -101,7 +99,8 @@ LLM abstraction lives in `app/llm.py`:
 - `get_llm()` reads `AIB_LLM_BACKEND` and returns the appropriate backend.
 - `MockLLM` wraps `mock_stream()` in `mock_llm.py` — turn-aware: turn 0 fills email/username, turn 1 fills password, turn 2 clicks submit.
 - `GeminiLLM` stub — raises `NotImplementedError`; implement `GeminiLLM.stream()` and set `AIB_LLM_BACKEND=gemini` + `GEMINI_API_KEY`.
-- Both backends log structured JSON (`llm_request` / `llm_response`) to stdout per turn.
+- `GaussLLM` — full implementation for the Gauss OpenAPI LLM; set `AIB_LLM_BACKEND=gauss` and `AIB_GAUSS_*` vars (URL, client, token, model IDs — see `.env.example`).
+- All backends log structured JSON (`llm_request` / `llm_response`) to stdout per turn.
 
 ### Tests
 

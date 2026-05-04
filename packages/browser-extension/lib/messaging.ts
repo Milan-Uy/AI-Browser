@@ -32,6 +32,7 @@ export interface TurnActionRecord {
 }
 
 export interface TurnRecord {
+  message: string;
   actions: TurnActionRecord[];
   page: PageContent | null;
 }

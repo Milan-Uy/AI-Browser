@@ -124,7 +124,7 @@ def _build_gauss_contents(message: str, history: List[TurnRecord]) -> List[str]:
     """
     contents: List[str] = []
     for turn in history:
-        contents.append(message)
+        contents.append(turn.message)
         model_lines = [
             "ACTION: " + json.dumps(act.action.model_dump(exclude_none=True))
             for act in turn.actions

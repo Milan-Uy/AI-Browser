@@ -60,3 +60,18 @@ export function createRateLimiter(minIntervalMs: number): RateLimiter {
     },
   };
 }
+
+export function isNoopNavigation(targetUrl: string, currentUrl: string): boolean {
+  let t: URL, c: URL;
+  try {
+    t = new URL(targetUrl);
+    c = new URL(currentUrl);
+  } catch {
+    return false;
+  }
+  if (t.origin !== c.origin) return false;
+  const norm = (p: string) => (p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p);
+  if (norm(t.pathname) !== norm(c.pathname)) return false;
+  if (t.search && t.search !== c.search) return false;
+  return true;
+}

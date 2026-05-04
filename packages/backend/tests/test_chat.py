@@ -257,18 +257,24 @@ async def test_gauss_backend_multi_turn_contents(monkeypatch: pytest.MonkeyPatch
 
 @pytest.mark.asyncio
 async def test_gauss_backend_filter_block_reason(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GaussLLM: filter_block_reason in stream chunk yields an error chunk and stops."""
+    """GaussLLM: filter_block_reason dict with non-200 result_code yields an error chunk and stops."""
     monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
     monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
     monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
     monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
     monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro")
 
+    blocked = json.dumps({
+        "ko": "부적절한 콘텐츠", "en": "inappropriate content",
+        "policy_id": "policy-xyz", "message": "blocked by safety",
+        "result_code": "FR-400", "filter_log_id": "log-123",
+    })
+
     def handler(request: httpx.Request) -> httpx.Response:
         sse_body = (
             b'data: {"content": "some text\\n", "finish_reason": null}\n\n'
-            b'data: {"content": "", "filter_block_reason": "safety", "finish_reason": null}\n\n'
-            b'data: {"content": "more text\\n", "finish_reason": "stop"}\n\n'
+            + f'data: {{"content": "", "filter_block_reason": {blocked}, "finish_reason": null}}\n\n'.encode()
+            + b'data: {"content": "more text\\n", "finish_reason": "stop"}\n\n'
             b'data: [DONE]\n\n'
         )
         return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
@@ -287,8 +293,43 @@ async def test_gauss_backend_filter_block_reason(monkeypatch: pytest.MonkeyPatch
     error_chunks = [p for p in parsed if p.get("type") == "error"]
     assert len(error_chunks) == 1
     assert "filter_block_reason" in error_chunks[0]["message"]
-    assert "safety" in error_chunks[0]["message"]
     assert not any(p.get("type") == "done" for p in parsed)
+
+
+@pytest.mark.asyncio
+async def test_gauss_backend_filter_block_fr200_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GaussLLM: filter_block_reason with result_code FR-200 is a pass — no error emitted."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
+    monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
+    monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
+    monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
+    monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro")
+
+    fr200 = json.dumps({
+        "ko": None, "en": None, "policy_id": None, "message": None,
+        "result_code": "FR-200", "filter_log_id": None,
+    })
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sse_body = (
+            f'data: {{"content": "DONE: true\\n", "filter_block_reason": {fr200}, "finish_reason": "stop"}}\n\n'.encode()
+            + b'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    original_client = httpx.AsyncClient
+
+    def patched_client(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        parsed = await _collect_chunks(client, {"message": "test", "page": None})
+
+    assert not any(p.get("type") == "error" for p in parsed)
+    assert parsed[-1]["type"] == "done"
 
 
 @pytest.mark.asyncio

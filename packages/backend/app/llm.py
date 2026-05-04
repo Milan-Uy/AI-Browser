@@ -333,7 +333,7 @@ class GaussLLM:
                     resp.raise_for_status()
                     obj = resp.json()
                     filter_block_reason = obj.get("filter_block_reason")
-                    if filter_block_reason:
+                    if _is_gauss_filter_blocked(filter_block_reason):
                         yield json.dumps({"type": "error", "message": f"Response blocked: filter_block_reason={filter_block_reason!r}"})
                         return
                     response_code = obj.get("response_code")
@@ -360,6 +360,26 @@ class GaussLLM:
 _GAUSS_OK_STATUSES = {None, "ok", "OK", "success", "SUCCESS"}
 
 
+def _is_gauss_filter_blocked(value: object) -> bool:
+    """Return True only when the Gauss filter_block_reason indicates actual blocking.
+
+    The field is always present as a result object. A result_code ending in
+    '200' (e.g. 'FR-200') means the filter passed; only flag as blocked when
+    there is a meaningful indicator such as a non-success result_code, a
+    non-None policy_id, or a non-None message.
+    """
+    if not value:
+        return False
+    if isinstance(value, str):
+        return True
+    if isinstance(value, dict):
+        result_code = value.get("result_code", "")
+        if isinstance(result_code, str) and result_code.endswith("200"):
+            return False
+        return bool(value.get("policy_id") or value.get("message"))
+    return bool(value)
+
+
 def _extract_gauss_chunk_text(raw_line: str) -> tuple[str, Optional[str]]:
     """Extract one text chunk from a streamed Gauss response line.
 
@@ -381,7 +401,7 @@ def _extract_gauss_chunk_text(raw_line: str) -> tuple[str, Optional[str]]:
         return "", None
 
     filter_block_reason = obj.get("filter_block_reason")
-    if filter_block_reason:
+    if _is_gauss_filter_blocked(filter_block_reason):
         return "", f"Response blocked: filter_block_reason={filter_block_reason!r}"
 
     response_code = obj.get("response_code")

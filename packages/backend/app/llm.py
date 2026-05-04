@@ -115,6 +115,26 @@ def _build_prompt(message: str, page: Optional[PageContent], history: List[TurnR
     return _build_system_prompt(page, history) + "\n## Task\n" + message
 
 
+def _build_gauss_contents(message: str, history: List[TurnRecord]) -> List[str]:
+    """Build the alternating user/model contents list for the Gauss API.
+
+    Each prior TurnRecord contributes a user turn (the original message) and a
+    model turn (reconstructed ACTION lines + DONE: false). When history is
+    empty, returns [message].
+    """
+    contents: List[str] = []
+    for turn in history:
+        contents.append(message)
+        model_lines = [
+            "ACTION: " + json.dumps(act.action.model_dump(exclude_none=True))
+            for act in turn.actions
+        ]
+        model_lines.append("DONE: false")
+        contents.append("\n".join(model_lines))
+    contents.append(message)
+    return contents
+
+
 def _parse_model_line(line: str, actions: list) -> tuple[Optional[str], Optional[bool]]:
     """Parse one line of model output. Returns (chunk_to_yield, completed_value).
 
@@ -281,7 +301,7 @@ class GaussLLM:
 
         body: dict = {
             "modelIds": model_ids,
-            "contents": [message],
+            "contents": _build_gauss_contents(message, history),
             "isStream": stream_enabled,
             "systemPrompt": system_prompt,
         }
@@ -294,10 +314,13 @@ class GaussLLM:
                     async with client.stream("POST", endpoint, headers=headers, json=body) as resp:
                         resp.raise_for_status()
                         async for raw_line in resp.aiter_lines():
-                            text_piece = _extract_gauss_chunk_text(raw_line)
-                            if not text_piece:
+                            content_piece, error_msg = _extract_gauss_chunk_text(raw_line)
+                            if error_msg:
+                                yield json.dumps({"type": "error", "message": error_msg})
+                                return
+                            if not content_piece:
                                 continue
-                            buffer += text_piece
+                            buffer += content_piece
                             while "\n" in buffer:
                                 line_part, _, buffer = buffer.partition("\n")
                                 out, done_val = _parse_model_line(line_part + "\n", actions)
@@ -309,6 +332,18 @@ class GaussLLM:
                     resp = await client.post(endpoint, headers=headers, json=body)
                     resp.raise_for_status()
                     obj = resp.json()
+                    filter_block_reason = obj.get("filter_block_reason")
+                    if filter_block_reason:
+                        yield json.dumps({"type": "error", "message": f"Response blocked: filter_block_reason={filter_block_reason!r}"})
+                        return
+                    response_code = obj.get("response_code")
+                    if response_code is not None and response_code not in (0, 200):
+                        yield json.dumps({"type": "error", "message": f"Gauss API error: response_code={response_code}"})
+                        return
+                    status = obj.get("status")
+                    if "status" in obj and status not in _GAUSS_OK_STATUSES:
+                        yield json.dumps({"type": "error", "message": f"Gauss API error: status={status!r}"})
+                        return
                     buffer = obj.get("content", "") or ""
             if buffer.strip():
                 out, done_val = _parse_model_line(buffer, actions)
@@ -322,23 +357,48 @@ class GaussLLM:
         return _gen()
 
 
-def _extract_gauss_chunk_text(raw_line: str) -> str:
+_GAUSS_OK_STATUSES = {None, "ok", "OK", "success", "SUCCESS"}
+
+
+def _extract_gauss_chunk_text(raw_line: str) -> tuple[str, Optional[str]]:
     """Extract one text chunk from a streamed Gauss response line.
 
     Stream format: one JSON object per line, optionally SSE-wrapped as
     `data: {...}`. Field names are snake_case in stream mode. The text
     payload lives in `content`.
+
+    Returns (text_piece, error_message). error_message is None on success;
+    when set, text_piece is always "".
     """
     if not raw_line:
-        return ""
+        return "", None
     line = raw_line[5:].strip() if raw_line.startswith("data:") else raw_line.strip()
     if line in ("", "[DONE]"):
-        return ""
+        return "", None
     try:
         obj = json.loads(line)
     except json.JSONDecodeError:
-        return ""
-    return obj.get("content", "") or ""
+        return "", None
+
+    filter_block_reason = obj.get("filter_block_reason")
+    if filter_block_reason:
+        return "", f"Response blocked: filter_block_reason={filter_block_reason!r}"
+
+    response_code = obj.get("response_code")
+    if response_code is not None and response_code not in (0, 200):
+        return "", f"Gauss API error: response_code={response_code}"
+
+    status = obj.get("status")
+    if "status" in obj and status not in _GAUSS_OK_STATUSES:
+        return "", f"Gauss API error: status={status!r}"
+
+    if obj.get("finish_reason") == "length":
+        logger.warning(json.dumps({
+            "event": "gauss_truncated",
+            "message": "Response truncated by token limit (finish_reason=length)",
+        }))
+
+    return obj.get("content", "") or "", None
 
 
 _BACKENDS: dict[str, type] = {

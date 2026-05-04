@@ -210,6 +210,153 @@ async def test_gauss_backend_buffers_action_split_across_chunks(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
+async def test_gauss_backend_multi_turn_contents(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GaussLLM: history with one fill action produces correct multi-turn contents array."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
+    monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
+    monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
+    monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
+    monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro")
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        sse_body = (
+            b'data: {"content": "DONE: true\\n", "finish_reason": "stop"}\n\n'
+            b'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    original_client = httpx.AsyncClient
+
+    def patched_client(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_client)
+
+    history = [
+        {
+            "actions": [
+                {
+                    "action": {"kind": "fill", "selector": "#email", "value": "user@example.com"},
+                    "result": {"ok": True},
+                }
+            ],
+            "page": None,
+        }
+    ]
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        await _collect_chunks(client, {"message": "login", "page": None, "history": history})
+
+    expected_model_turn = 'ACTION: {"kind": "fill", "selector": "#email", "value": "user@example.com"}\nDONE: false'
+    assert captured["body"]["contents"] == ["login", expected_model_turn, "login"]
+
+
+@pytest.mark.asyncio
+async def test_gauss_backend_filter_block_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GaussLLM: filter_block_reason in stream chunk yields an error chunk and stops."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
+    monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
+    monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
+    monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
+    monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sse_body = (
+            b'data: {"content": "some text\\n", "finish_reason": null}\n\n'
+            b'data: {"content": "", "filter_block_reason": "safety", "finish_reason": null}\n\n'
+            b'data: {"content": "more text\\n", "finish_reason": "stop"}\n\n'
+            b'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    original_client = httpx.AsyncClient
+
+    def patched_client(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        parsed = await _collect_chunks(client, {"message": "test", "page": None})
+
+    error_chunks = [p for p in parsed if p.get("type") == "error"]
+    assert len(error_chunks) == 1
+    assert "filter_block_reason" in error_chunks[0]["message"]
+    assert "safety" in error_chunks[0]["message"]
+    assert not any(p.get("type") == "done" for p in parsed)
+
+
+@pytest.mark.asyncio
+async def test_gauss_backend_response_code_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GaussLLM: non-success response_code in stream chunk yields an error chunk."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
+    monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
+    monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
+    monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
+    monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sse_body = (
+            b'data: {"content": "", "response_code": 429, "finish_reason": null}\n\n'
+            b'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    original_client = httpx.AsyncClient
+
+    def patched_client(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        parsed = await _collect_chunks(client, {"message": "test", "page": None})
+
+    error_chunks = [p for p in parsed if p.get("type") == "error"]
+    assert len(error_chunks) == 1
+    assert "response_code" in error_chunks[0]["message"]
+    assert "429" in error_chunks[0]["message"]
+    assert not any(p.get("type") == "done" for p in parsed)
+
+
+@pytest.mark.asyncio
+async def test_gauss_backend_finish_reason_length_completes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GaussLLM: finish_reason=length logs a warning but streaming completes normally."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
+    monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
+    monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
+    monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
+    monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sse_body = (
+            b'data: {"content": "DONE: true\\n", "finish_reason": "length"}\n\n'
+            b'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    original_client = httpx.AsyncClient
+
+    def patched_client(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        parsed = await _collect_chunks(client, {"message": "test", "page": None})
+
+    assert not any(p.get("type") == "error" for p in parsed)
+    assert parsed[-1]["type"] == "done"
+
+
+@pytest.mark.asyncio
 async def test_gauss_backend_requires_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.llm import GaussLLM
 

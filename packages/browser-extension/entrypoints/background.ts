@@ -9,7 +9,7 @@ import {
   type TurnRecord,
 } from "@/lib/messaging";
 import { streamChat } from "@/lib/api-client";
-import { validateAction, createRateLimiter } from "@/lib/security";
+import { validateAction, createRateLimiter, isNoopNavigation } from "@/lib/security";
 
 const BACKEND_URL = "http://localhost:8000/chat";
 const MAX_TURNS = 10;
@@ -113,6 +113,13 @@ export default defineBackground(() => {
               await rateLimiter.acquire();
               const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
               if (!tab?.id) continue;
+              if (
+                chunk.action.kind === "navigate" &&
+                tab.url &&
+                isNoopNavigation(chunk.action.url, tab.url)
+              ) {
+                continue;
+              }
               const actionId = `${requestId}-${Math.random().toString(36).slice(2, 8)}`;
               let res: AppMessage | null = null;
               try {

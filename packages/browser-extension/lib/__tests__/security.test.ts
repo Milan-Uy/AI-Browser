@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { validateAction, createRateLimiter } from "../security";
+import { validateAction, createRateLimiter, isNoopNavigation } from "../security";
 import type { LLMAction } from "../messaging";
 
 describe("security.validateAction", () => {
@@ -54,5 +54,59 @@ describe("security.createRateLimiter", () => {
 
     await vi.advanceTimersByTimeAsync(1);
     expect(await second).toBe(true);
+  });
+});
+
+describe("security.isNoopNavigation", () => {
+  it("returns true for identical URLs", () => {
+    expect(isNoopNavigation("https://samsung.com/refrigerator", "https://samsung.com/refrigerator")).toBe(true);
+  });
+
+  it("ignores a trailing slash on either side", () => {
+    expect(isNoopNavigation("https://samsung.com/refrigerator/", "https://samsung.com/refrigerator")).toBe(true);
+    expect(isNoopNavigation("https://samsung.com/refrigerator", "https://samsung.com/refrigerator/")).toBe(true);
+  });
+
+  it("returns false for different hosts", () => {
+    expect(isNoopNavigation("https://samsung.com/refrigerator", "https://www.samsung.com/refrigerator")).toBe(false);
+  });
+
+  it("returns false for different schemes", () => {
+    expect(isNoopNavigation("http://samsung.com/refrigerator", "https://samsung.com/refrigerator")).toBe(false);
+  });
+
+  it("returns false for different pathnames", () => {
+    expect(isNoopNavigation("https://samsung.com/refrigerator", "https://samsung.com/tv")).toBe(false);
+  });
+
+  it("returns false when target and current have different non-empty search strings", () => {
+    expect(
+      isNoopNavigation(
+        "https://samsung.com/refrigerator?q=ice",
+        "https://samsung.com/refrigerator?q=fridge",
+      ),
+    ).toBe(false);
+  });
+
+  it("returns true when target has empty search but current has any search", () => {
+    expect(
+      isNoopNavigation(
+        "https://samsung.com/refrigerator",
+        "https://samsung.com/refrigerator?ref=ad",
+      ),
+    ).toBe(true);
+  });
+
+  it("ignores hash differences", () => {
+    expect(
+      isNoopNavigation(
+        "https://samsung.com/refrigerator#specs",
+        "https://samsung.com/refrigerator#reviews",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for malformed target URL", () => {
+    expect(isNoopNavigation("not a url", "https://samsung.com/refrigerator")).toBe(false);
   });
 });

@@ -367,6 +367,37 @@ async def test_gauss_backend_response_code_error(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
+async def test_gauss_backend_response_code_r20000_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GaussLLM: response_code=R20000 is a success code and must not yield an error chunk."""
+    monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")
+    monkeypatch.setenv("AIB_GAUSS_API_URL", "https://fake-gauss.example.com")
+    monkeypatch.setenv("AIB_GAUSS_CLIENT", "fake-client")
+    monkeypatch.setenv("AIB_GAUSS_TOKEN", "fake-token")
+    monkeypatch.setenv("AIB_GAUSS_MODEL_IDS", "gauss-pro")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sse_body = (
+            b'data: {"content": "DONE: true\\n", "response_code": "R20000", "finish_reason": "stop"}\n\n'
+            b'data: [DONE]\n\n'
+        )
+        return httpx.Response(200, content=sse_body, headers={"content-type": "text/event-stream"})
+
+    original_client = httpx.AsyncClient
+
+    def patched_client(*args, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_client)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        parsed = await _collect_chunks(client, {"message": "test", "page": None})
+
+    assert not any(p.get("type") == "error" for p in parsed)
+    assert any(p.get("type") == "done" for p in parsed)
+
+
+@pytest.mark.asyncio
 async def test_gauss_backend_finish_reason_length_completes(monkeypatch: pytest.MonkeyPatch) -> None:
     """GaussLLM: finish_reason=length logs a warning but streaming completes normally."""
     monkeypatch.setenv("AIB_LLM_BACKEND", "gauss")

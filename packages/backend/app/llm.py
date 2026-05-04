@@ -337,7 +337,7 @@ class GaussLLM:
                         yield json.dumps({"type": "error", "message": f"Response blocked: filter_block_reason={filter_block_reason!r}"})
                         return
                     response_code = obj.get("response_code")
-                    if response_code is not None and response_code not in (0, 200):
+                    if not _is_gauss_response_ok(response_code):
                         yield json.dumps({"type": "error", "message": f"Gauss API error: response_code={response_code}"})
                         return
                     status = obj.get("status")
@@ -358,6 +358,14 @@ class GaussLLM:
 
 
 _GAUSS_OK_STATUSES = {None, "ok", "OK", "success", "SUCCESS"}
+
+
+def _is_gauss_response_ok(code: object) -> bool:
+    if code is None or code in (0, 200):
+        return True
+    if isinstance(code, str) and code.startswith("R2"):
+        return True
+    return False
 
 
 def _is_gauss_filter_blocked(value: object) -> bool:
@@ -405,7 +413,7 @@ def _extract_gauss_chunk_text(raw_line: str) -> tuple[str, Optional[str]]:
         return "", f"Response blocked: filter_block_reason={filter_block_reason!r}"
 
     response_code = obj.get("response_code")
-    if response_code is not None and response_code not in (0, 200):
+    if not _is_gauss_response_ok(response_code):
         return "", f"Gauss API error: response_code={response_code}"
 
     status = obj.get("status")

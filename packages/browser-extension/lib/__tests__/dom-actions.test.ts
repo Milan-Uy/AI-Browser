@@ -83,3 +83,46 @@ describe("dom-actions.executeAction", () => {
     expect(result?.innerText).toBe("Price");
   });
 });
+
+describe("findBySemanticFallback — value and label strategies", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("finds checkbox by value attribute (Strategy 3)", async () => {
+    document.body.innerHTML = `<input type="checkbox" value="below-10000">`;
+    const el = await waitForElement("input[value='below-10000']", 50);
+    expect(el).not.toBeNull();
+    expect(el?.getAttribute("value")).toBe("below-10000");
+  });
+
+  it("finds checkbox by label[for] text — selector uses ₱ (real LLM output)", async () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="p1" value="x">
+      <label for="p1">Below ₱10,000</label>
+    `;
+    const el = await waitForElement("input[value='Below ₱10,000']", 50);
+    expect(el).not.toBeNull();
+    expect((el as HTMLInputElement).id).toBe("p1");
+  });
+
+  it("finds radio by wrapping label text (Strategy 4 via closest)", async () => {
+    document.body.innerHTML = `
+      <label><input type="radio" value="y"><span>Below ₱10,000</span></label>
+    `;
+    const el = await waitForElement("input[value='Below ₱10,000']", 50);
+    expect(el).not.toBeNull();
+  });
+
+  it("normalizes ₱ to P when matching label text (Strategy 4)", async () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="c2" value="slug">
+      <label for="c2">Below ₱10,000</label>
+    `;
+    // selector value 'Below P10,000' normalizes to 'below p10000'
+    // label text 'Below ₱10,000' also normalizes to 'below p10000' — match
+    const el = await waitForElement("input[value='Below P10,000']", 50);
+    expect(el).not.toBeNull();
+    expect((el as HTMLInputElement).id).toBe("c2");
+  });
+});

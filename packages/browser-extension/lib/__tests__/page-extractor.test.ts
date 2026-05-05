@@ -100,6 +100,30 @@ describe("page-extractor", () => {
     expect(sel).not.toContain("data-foo");
   });
 
+  it("extracts value attribute for checkbox inputs", () => {
+    setBody(`<input type="checkbox" id="c1" value="below-10000">`);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.type === "checkbox");
+    expect(el).toBeDefined();
+    expect(el?.value).toBe("below-10000");
+  });
+
+  it("extracts value attribute for radio inputs", () => {
+    setBody(`<input type="radio" name="price" value="above-50000">`);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.type === "radio");
+    expect(el).toBeDefined();
+    expect(el?.value).toBe("above-50000");
+  });
+
+  it("does NOT extract value for text inputs", () => {
+    setBody(`<input type="text" id="t1" value="user typed">`);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.type === "text");
+    expect(el).toBeDefined();
+    expect(el?.value).toBeUndefined();
+  });
+
   it("buildUniqueSelector falls back to positional when aria-label contains quotes", () => {
     const btn = document.createElement("button");
     btn.setAttribute("aria-label", "it's here");

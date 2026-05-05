@@ -41,6 +41,10 @@ function describeElement(el: HTMLElement): InteractiveElement | null {
     const ph = (el as HTMLInputElement).placeholder;
     if (ph) info.placeholder = ph;
   }
+  if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
+    const v = el.getAttribute("value");
+    if (v) info.value = v;
+  }
   return info;
 }
 

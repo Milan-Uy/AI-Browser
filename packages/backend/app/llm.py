@@ -62,6 +62,9 @@ def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord])
     prompt_lines: list[str] = [
         "You are an AI browser assistant. The user gives you a task and you "
         "either answer it directly or perform browser actions to accomplish it.",
+        "Only perform actions using the selectors listed in the Interactive elements section. "
+        "If a click reveals a dropdown, menu, or panel with new options, stop after the click "
+        "and output DONE: false — you will see the new elements in the next turn.",
         "",
         "To perform a browser action, output a line in this exact format (JSON on one line).",
         'Include a short "description" field with a human-readable label for the element (e.g. "sign in button", "email field"):',
@@ -95,6 +98,8 @@ def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord])
                     parts.append(f"type={el.type!r}")
                 if el.placeholder:
                     parts.append(f"placeholder={el.placeholder!r}")
+                if el.value:
+                    parts.append(f"value={el.value!r}")
                 if el.text:
                     parts.append(f"text={el.text!r}")
                 prompt_lines.append("  - " + ", ".join(parts))

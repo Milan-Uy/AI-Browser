@@ -44,6 +44,18 @@ function describeElement(el: HTMLElement): InteractiveElement | null {
   if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
     const v = el.getAttribute("value");
     if (v) info.value = v;
+    if (!info.text) {
+      if (el.id) {
+        const label = document.querySelector<HTMLLabelElement>(
+          `label[for="${CSS.escape(el.id)}"]`,
+        );
+        if (label) info.text = label.innerText.trim().slice(0, 120);
+      }
+      if (!info.text) {
+        const wrapped = el.closest("label");
+        if (wrapped) info.text = wrapped.innerText.trim().slice(0, 120);
+      }
+    }
   }
   return info;
 }

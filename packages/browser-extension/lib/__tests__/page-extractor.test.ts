@@ -124,6 +124,38 @@ describe("page-extractor", () => {
     expect(el?.value).toBeUndefined();
   });
 
+  it("populates text from label[for] when checkbox has no innerText or aria-label", () => {
+    setBody(`
+      <input type="checkbox" id="price-1" value="below-10000">
+      <label for="price-1">Below ₱10,000</label>
+    `);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.type === "checkbox");
+    expect(el?.text).toBe("Below ₱10,000");
+  });
+
+  it("populates text from wrapping label when checkbox is inside a label", () => {
+    setBody(`
+      <label>
+        <input type="checkbox" value="above-50000">
+        Above ₱50,000
+      </label>
+    `);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.type === "checkbox");
+    expect(el?.text).toContain("Above");
+  });
+
+  it("aria-label takes precedence over label[for] for checkbox text", () => {
+    setBody(`
+      <input type="checkbox" id="price-2" aria-label="Under ten thousand" value="below-10000">
+      <label for="price-2">Below ₱10,000</label>
+    `);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.type === "checkbox");
+    expect(el?.text).toBe("Under ten thousand");
+  });
+
   it("buildUniqueSelector falls back to positional when aria-label contains quotes", () => {
     const btn = document.createElement("button");
     btn.setAttribute("aria-label", "it's here");

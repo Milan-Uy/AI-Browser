@@ -56,4 +56,30 @@ describe("dom-actions.executeAction", () => {
     const result = await waitForElement("#never", 50);
     expect(result).toBeNull();
   });
+
+  it("finds element by aria-label when CSS selector fails to match", async () => {
+    document.body.innerHTML = `<button aria-label="Price">Sort</button>`;
+    const result = await waitForElement("button[aria-label='Price']", 50);
+    expect(result).not.toBeNull();
+    expect(result?.getAttribute("aria-label")).toBe("Price");
+  });
+
+  it("finds element by aria-label case-insensitively", async () => {
+    document.body.innerHTML = `<button aria-label="Price">Sort</button>`;
+    const result = await waitForElement("button[aria-label='price']", 50);
+    expect(result).not.toBeNull();
+  });
+
+  it("returns null when aria-label value matches nothing", async () => {
+    document.body.innerHTML = `<button aria-label="Size">Sort</button>`;
+    const result = await waitForElement("button[aria-label='Price']", 50);
+    expect(result).toBeNull();
+  });
+
+  it("finds element by innerText fallback when aria-label absent", async () => {
+    document.body.innerHTML = `<button>Price</button>`;
+    const result = await waitForElement("button[aria-label='Price']", 50);
+    expect(result).not.toBeNull();
+    expect(result?.innerText).toBe("Price");
+  });
 });

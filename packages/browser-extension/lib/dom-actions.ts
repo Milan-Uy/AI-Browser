@@ -20,12 +20,43 @@ export async function executeAction(action: LLMAction): Promise<ActionResult> {
   }
 }
 
+function findBySemanticFallback(selector: string): HTMLElement | null {
+  const ariaMatch = selector.match(
+    /^([a-z][a-z0-9-]*)?\[aria-label\s*=\s*['"](.+?)['"]\]/i,
+  );
+  if (ariaMatch) {
+    const tag: string = ariaMatch[1] ?? "*";
+    const rawValue = ariaMatch[2];
+    if (rawValue) {
+      const value = rawValue.toLowerCase();
+      const found = Array.from(document.querySelectorAll<HTMLElement>(tag)).find(
+        (el) => el.getAttribute("aria-label")?.toLowerCase() === value,
+      );
+      if (found) return found;
+    }
+  }
+
+  const tagMatch = selector.match(/^([a-z][a-z0-9-]*)/i);
+  const textMatch = selector.match(/['"](.+?)['"]/);
+  const rawTag = tagMatch?.[1];
+  const rawText = textMatch?.[1];
+  if (rawTag && rawText) {
+    const value = rawText.toLowerCase();
+    const found = Array.from(document.querySelectorAll<HTMLElement>(rawTag)).find(
+      (el) => el.innerText?.trim().toLowerCase() === value,
+    );
+    if (found) return found;
+  }
+
+  return null;
+}
+
 export function waitForElement(selector: string, timeoutMs = 1500): Promise<HTMLElement | null> {
   let el: HTMLElement | null = null;
   try {
     el = document.querySelector<HTMLElement>(selector);
   } catch {
-    return Promise.resolve(null);
+    return Promise.resolve(findBySemanticFallback(selector));
   }
   if (el) return Promise.resolve(el);
 
@@ -52,7 +83,7 @@ export function waitForElement(selector: string, timeoutMs = 1500): Promise<HTML
     });
     timer = setTimeout(() => {
       observer.disconnect();
-      resolve(null);
+      resolve(findBySemanticFallback(selector));
     }, timeoutMs);
   });
 }

@@ -59,4 +59,53 @@ describe("page-extractor", () => {
     const sel = buildUniqueSelector(btns[1]!);
     expect(document.querySelector(sel)).toBe(btns[1]);
   });
+
+  it("buildUniqueSelector prefers aria-label selector when unique", () => {
+    setBody(`<button aria-label="Price">X</button>`);
+    const btn = document.querySelector("button")!;
+    expect(buildUniqueSelector(btn)).toBe(`button[aria-label='Price']`);
+  });
+
+  it("buildUniqueSelector falls back to positional when aria-label is not unique", () => {
+    setBody(`<button aria-label="Close">A</button><button aria-label="Close">B</button>`);
+    const btn = document.querySelector("button")!;
+    const sel = buildUniqueSelector(btn);
+    expect(sel).not.toContain("aria-label");
+    expect(document.querySelector(sel)).toBe(btn);
+  });
+
+  it("buildUniqueSelector prefers data-testid when unique and no aria-label", () => {
+    setBody(`<button data-testid="price-btn">X</button>`);
+    const btn = document.querySelector("button")!;
+    expect(buildUniqueSelector(btn)).toBe(`[data-testid='price-btn']`);
+  });
+
+  it("buildUniqueSelector uses other data-* attribute when unique", () => {
+    setBody(`<button data-cy="price-btn">X</button>`);
+    const btn = document.querySelector("button")!;
+    expect(buildUniqueSelector(btn)).toBe(`[data-cy='price-btn']`);
+  });
+
+  it("buildUniqueSelector skips data-* values longer than 50 chars", () => {
+    setBody(`<button data-foo="${"a".repeat(51)}">X</button>`);
+    const btn = document.querySelector("button")!;
+    const sel = buildUniqueSelector(btn);
+    expect(sel).not.toContain("data-foo");
+  });
+
+  it("buildUniqueSelector skips data-* values with whitespace", () => {
+    setBody(`<button data-foo="hello world">X</button>`);
+    const btn = document.querySelector("button")!;
+    const sel = buildUniqueSelector(btn);
+    expect(sel).not.toContain("data-foo");
+  });
+
+  it("buildUniqueSelector falls back to positional when aria-label contains quotes", () => {
+    const btn = document.createElement("button");
+    btn.setAttribute("aria-label", "it's here");
+    document.body.appendChild(btn);
+    const sel = buildUniqueSelector(btn);
+    // happy-dom can't parse escaped quotes in CSS selectors, so it falls back to positional
+    expect(document.querySelector(sel)).toBe(btn);
+  });
 });

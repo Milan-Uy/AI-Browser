@@ -56,4 +56,73 @@ describe("dom-actions.executeAction", () => {
     const result = await waitForElement("#never", 50);
     expect(result).toBeNull();
   });
+
+  it("finds element by aria-label when CSS selector fails to match", async () => {
+    document.body.innerHTML = `<button aria-label="Price">Sort</button>`;
+    const result = await waitForElement("button[aria-label='Price']", 50);
+    expect(result).not.toBeNull();
+    expect(result?.getAttribute("aria-label")).toBe("Price");
+  });
+
+  it("finds element by aria-label case-insensitively", async () => {
+    document.body.innerHTML = `<button aria-label="Price">Sort</button>`;
+    const result = await waitForElement("button[aria-label='price']", 50);
+    expect(result).not.toBeNull();
+  });
+
+  it("returns null when aria-label value matches nothing", async () => {
+    document.body.innerHTML = `<button aria-label="Size">Sort</button>`;
+    const result = await waitForElement("button[aria-label='Price']", 50);
+    expect(result).toBeNull();
+  });
+
+  it("finds element by innerText fallback when aria-label absent", async () => {
+    document.body.innerHTML = `<button>Price</button>`;
+    const result = await waitForElement("button[aria-label='Price']", 50);
+    expect(result).not.toBeNull();
+    expect(result?.innerText).toBe("Price");
+  });
+});
+
+describe("findBySemanticFallback — value and label strategies", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("finds checkbox by value attribute (Strategy 3)", async () => {
+    document.body.innerHTML = `<input type="checkbox" value="below-10000">`;
+    const el = await waitForElement("input[value='below-10000']", 50);
+    expect(el).not.toBeNull();
+    expect(el?.getAttribute("value")).toBe("below-10000");
+  });
+
+  it("finds checkbox by label[for] text — selector uses ₱ (real LLM output)", async () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="p1" value="x">
+      <label for="p1">Below ₱10,000</label>
+    `;
+    const el = await waitForElement("input[value='Below ₱10,000']", 50);
+    expect(el).not.toBeNull();
+    expect((el as HTMLInputElement).id).toBe("p1");
+  });
+
+  it("finds radio by wrapping label text (Strategy 4 via closest)", async () => {
+    document.body.innerHTML = `
+      <label><input type="radio" value="y"><span>Below ₱10,000</span></label>
+    `;
+    const el = await waitForElement("input[value='Below ₱10,000']", 50);
+    expect(el).not.toBeNull();
+  });
+
+  it("normalizes ₱ to P when matching label text (Strategy 4)", async () => {
+    document.body.innerHTML = `
+      <input type="checkbox" id="c2" value="slug">
+      <label for="c2">Below ₱10,000</label>
+    `;
+    // selector value 'Below P10,000' normalizes to 'below p10000'
+    // label text 'Below ₱10,000' also normalizes to 'below p10000' — match
+    const el = await waitForElement("input[value='Below P10,000']", 50);
+    expect(el).not.toBeNull();
+    expect((el as HTMLInputElement).id).toBe("c2");
+  });
 });

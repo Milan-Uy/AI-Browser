@@ -41,7 +41,15 @@ function describeElement(el: HTMLElement): InteractiveElement | null {
     const ph = (el as HTMLInputElement).placeholder;
     if (ph) info.placeholder = ph;
   }
+  if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
+    const v = el.getAttribute("value");
+    if (v) info.value = v;
+  }
   return info;
+}
+
+function escapeCSSAttrValue(v: string): string {
+  return v.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 export function buildUniqueSelector(el: Element): string {
@@ -49,6 +57,27 @@ export function buildUniqueSelector(el: Element): string {
     const s = `#${el.id}`;
     if (document.querySelectorAll(s).length === 1) return s;
   }
+
+  const ariaLabel = el.getAttribute("aria-label");
+  if (ariaLabel) {
+    const s = `${el.tagName.toLowerCase()}[aria-label='${escapeCSSAttrValue(ariaLabel)}']`;
+    if (document.querySelectorAll(s).length === 1) return s;
+  }
+
+  const testId = el.getAttribute("data-testid");
+  if (testId) {
+    const s = `[data-testid='${escapeCSSAttrValue(testId)}']`;
+    if (document.querySelectorAll(s).length === 1) return s;
+  }
+
+  for (const attr of Array.from(el.attributes)) {
+    if (!attr.name.startsWith("data-") || attr.name === "data-testid") continue;
+    const v = attr.value;
+    if (v.length === 0 || v.length > 50 || /\s/.test(v)) continue;
+    const s = `[${attr.name}='${escapeCSSAttrValue(v)}']`;
+    if (document.querySelectorAll(s).length === 1) return s;
+  }
+
   const parts: string[] = [];
   let cur: Element | null = el;
   while (cur && cur.nodeType === 1 && cur !== document.body) {

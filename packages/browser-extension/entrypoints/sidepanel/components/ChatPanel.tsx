@@ -4,6 +4,37 @@ import { PageContextBadge } from "./PageContextBadge";
 import { useChat } from "../hooks/useChat";
 import { usePageContent } from "../hooks/usePageContent";
 
+function SparkleIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="sg" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#7c3aed" />
+          <stop offset="100%" stopColor="#3b82f6" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M50,5 C52,30 70,48 95,50 C70,52 52,70 50,95 C48,70 30,52 5,50 C30,48 48,30 50,5 Z"
+        fill="url(#sg)"
+      />
+    </svg>
+  );
+}
+
+function SendIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={active ? "text-black" : "text-slate-400"}
+    >
+      <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+    </svg>
+  );
+}
+
 export function ChatPanel() {
   const { messages, pending, send, cancel, clear } = useChat();
   const { content, loading, refresh } = usePageContent();
@@ -33,15 +64,18 @@ export function ChatPanel() {
     errorText.toLowerCase().includes("network");
 
   return (
-    <div className="h-full flex flex-col bg-slate-900">
-      <header className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
-        <span className="text-sm font-semibold text-slate-100">AI Browser Agent</span>
+    <div
+      className="h-full flex flex-col"
+      style={{ background: "linear-gradient(to top right, #3b82f6 0%, #93c5fd 50%, #ffffff 100%)" }}
+    >
+      <header className="px-4 py-3 flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-800">AI Browser</span>
         {messages.length > 0 && (
           <button
             type="button"
             onClick={clear}
             disabled={pending}
-            className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="text-xs text-gray-500 hover:text-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Clear
           </button>
@@ -54,10 +88,13 @@ export function ChatPanel() {
         onToggle={setIncludePage}
         onRefresh={refresh}
       />
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 bg-slate-900">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
         {messages.length === 0 && (
-          <div className="text-slate-400 text-sm text-center mt-8">
-            Ask about this page or anything else.
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <div className="flex items-center gap-2">
+              <SparkleIcon />
+              <span className="text-xl font-semibold text-gray-800">AI Browser</span>
+            </div>
           </div>
         )}
         {messages.map((m) => (
@@ -65,36 +102,43 @@ export function ChatPanel() {
         ))}
       </div>
       {hasError && (
-        <div className="px-3 py-1.5 text-xs bg-rose-900/40 text-rose-300 border-t border-rose-700">
+        <div className="mx-3 mb-2 px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg border border-red-200">
           {errorText || "Something went wrong."}
           {isConnectionError && " Make sure the FastAPI server is running on :8000."}
         </div>
       )}
-      <form onSubmit={onSubmit} className="border-t border-slate-700 p-2 flex gap-2 bg-slate-900">
-        <input
-          className="flex-1 rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          placeholder="Type a message…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={pending}
-        />
-        {pending ? (
-          <button
-            type="button"
-            onClick={cancel}
-            className="rounded-md bg-slate-600 text-slate-200 text-sm px-3 py-2"
-          >
-            Cancel
-          </button>
-        ) : (
-          <button
-            type="submit"
-            className="rounded-md bg-indigo-600 text-white text-sm px-3 py-2 disabled:opacity-50"
-            disabled={!input.trim()}
-          >
-            Send
-          </button>
-        )}
+      <form onSubmit={onSubmit} className="px-3 pb-3 pt-1">
+        <div
+          className="p-[2px] rounded-2xl"
+          style={{ background: "linear-gradient(135deg, #3b82f6, #22c55e)" }}
+        >
+          <div className="flex items-center gap-2 bg-white rounded-2xl px-3 py-2">
+            <input
+              className="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
+              placeholder="Type a message…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              disabled={pending}
+            />
+            {pending ? (
+              <button
+                type="button"
+                onClick={cancel}
+                className="text-xs text-gray-500 hover:text-gray-800 px-2 py-0.5 rounded-lg border border-gray-200"
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim()}
+                className="disabled:cursor-not-allowed"
+              >
+                <SendIcon active={!!input.trim()} />
+              </button>
+            )}
+          </div>
+        </div>
       </form>
     </div>
   );

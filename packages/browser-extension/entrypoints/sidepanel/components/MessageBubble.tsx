@@ -54,11 +54,11 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
 
   return (
     <div className="flex items-start gap-1.5 self-start max-w-[85%]">
+      <SparkleIcon />
       <p className={`${base} text-gray-800`}>
         {message.content}
         {message.pending && <span className="ml-1 animate-pulse">▌</span>}
       </p>
-      <SparkleIcon />
     </div>
   );
 }

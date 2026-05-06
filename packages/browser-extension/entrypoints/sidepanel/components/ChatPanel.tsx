@@ -124,9 +124,12 @@ export function ChatPanel() {
               <button
                 type="button"
                 onClick={cancel}
-                className="text-xs text-gray-500 hover:text-gray-800 px-2 py-0.5 rounded-lg border border-gray-200"
+                className="text-black hover:text-gray-700 flex-shrink-0"
+                aria-label="Cancel"
               >
-                Cancel
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <rect width="16" height="16" rx="2" />
+                </svg>
               </button>
             ) : (
               <button

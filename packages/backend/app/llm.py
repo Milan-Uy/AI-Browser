@@ -490,8 +490,6 @@ class AgentSecLLM:
                     yield out
                 if done_val is not None:
                     completed = done_val
-            if not any(ln.strip().upper().startswith("DONE:") for ln in text.splitlines()):
-                completed = True
             yield json.dumps({"type": "done", "completed": completed})
             _log_response(self.name, turn, actions, completed)
 
@@ -505,8 +503,11 @@ def _extract_agentsec_text(body: dict) -> str:
     except (KeyError, IndexError, TypeError):
         pass
     for key in ("output", "result", "message", "text"):
-        if isinstance(body.get(key), str):
-            return body[key]
+        val = body.get(key)
+        if isinstance(val, str):
+            return val
+        if isinstance(val, dict) and isinstance(val.get("text"), str):
+            return val["text"]
     raise RuntimeError(f"AgentSec: unexpected response shape: {json.dumps(body)[:200]}")
 
 

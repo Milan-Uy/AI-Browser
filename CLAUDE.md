@@ -33,9 +33,10 @@ pytest tests/test_chat.py::test_healthz  # Single test
 
 Backend LLM selection (env var):
 ```bash
-AIB_LLM_BACKEND=mock    # turn-aware mock (default)
-AIB_LLM_BACKEND=gemini  # Gemini — set GEMINI_API_KEY
-AIB_LLM_BACKEND=gauss   # Gauss OpenAPI LLM — set AIB_GAUSS_* vars (see .env.example)
+AIB_LLM_BACKEND=mock      # turn-aware mock (default)
+AIB_LLM_BACKEND=gemini    # Gemini — set GEMINI_API_KEY
+AIB_LLM_BACKEND=gauss     # Gauss OpenAPI LLM — set AIB_GAUSS_* vars (see .env.example)
+AIB_LLM_BACKEND=agentsec  # Agent.sec / Langflow chat endpoint — set AIB_AGENTSEC_URL + AIB_AGENTSEC_API_KEY
 ```
 
 LLM request/response logging:

@@ -62,6 +62,9 @@ def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord])
     prompt_lines: list[str] = [
         "You are an AI browser assistant. The user gives you a task and you "
         "either answer it directly or perform browser actions to accomplish it.",
+        "Only perform actions using the selectors listed in the Interactive elements section. "
+        "If a click reveals a dropdown, menu, or panel with new options, stop after the click "
+        "and output DONE: false — you will see the new elements in the next turn.",
         "",
         "To perform a browser action, output a line in this exact format (JSON on one line).",
         'Include a short "description" field with a human-readable label for the element (e.g. "sign in button", "email field"):',
@@ -95,6 +98,8 @@ def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord])
                     parts.append(f"type={el.type!r}")
                 if el.placeholder:
                     parts.append(f"placeholder={el.placeholder!r}")
+                if el.value:
+                    parts.append(f"value={el.value!r}")
                 if el.text:
                     parts.append(f"text={el.text!r}")
                 prompt_lines.append("  - " + ", ".join(parts))
@@ -429,14 +434,91 @@ def _extract_gauss_chunk_text(raw_line: str) -> tuple[str, Optional[str]]:
     return obj.get("content", "") or "", None
 
 
+class AgentSecLLM:
+    """Backend for Agent.sec / Langflow chat endpoints.
+
+    Required env:
+      AIB_LLM_BACKEND=agentsec
+      AIB_AGENTSEC_URL=https://...       (full endpoint URL)
+      AIB_AGENTSEC_API_KEY=<api-key>    (value for x-api-key header)
+    """
+
+    name = "agentsec"
+
+    async def stream(
+        self,
+        message: str,
+        page: Optional[PageContent],
+        history: List[TurnRecord],
+    ) -> AsyncIterator[str]:
+        import httpx  # deferred: only needed when backend=agentsec
+
+        url = os.environ.get("AIB_AGENTSEC_URL", "")
+        api_key = os.environ.get("AIB_AGENTSEC_API_KEY", "")
+        missing = [var for var, val in (("AIB_AGENTSEC_URL", url), ("AIB_AGENTSEC_API_KEY", api_key)) if not val]
+        if missing:
+            raise ValueError(
+                f"Missing required AgentSec env vars: {', '.join(missing)}. "
+                "Add them to packages/backend/.env."
+            )
+
+        turn = len(history)
+        _log_request(self.name, turn, message, page, history)
+        actions: list = []
+        completed = False
+
+        async def _gen() -> AsyncIterator[str]:
+            nonlocal completed
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(
+                    url,
+                    headers={"Content-Type": "application/json", "x-api-key": api_key},
+                    json={
+                        "input_type": "chat",
+                        "output_type": "chat",
+                        "input_value": _build_prompt(message, page, history),
+                    },
+                )
+                if not resp.is_success:
+                    yield json.dumps({"type": "error", "message": f"AgentSec HTTP {resp.status_code}: {resp.text[:200]}"})
+                    return
+                body = resp.json()
+                text = _extract_agentsec_text(body)
+            for line in text.splitlines():
+                out, done_val = _parse_model_line(line, actions)
+                if out is not None:
+                    yield out
+                if done_val is not None:
+                    completed = done_val
+            if not any(ln.strip().upper().startswith("DONE:") for ln in text.splitlines()):
+                completed = True
+            yield json.dumps({"type": "done", "completed": completed})
+            _log_response(self.name, turn, actions, completed)
+
+        return _gen()
+
+
+def _extract_agentsec_text(body: dict) -> str:
+    """Extract response text from an Agent.sec / Langflow response body."""
+    try:
+        return body["outputs"][0]["outputs"][0]["results"]["message"]["text"]
+    except (KeyError, IndexError, TypeError):
+        pass
+    for key in ("output", "result", "message", "text"):
+        if isinstance(body.get(key), str):
+            return body[key]
+    raise RuntimeError(f"AgentSec: unexpected response shape: {json.dumps(body)[:200]}")
+
+
 _BACKENDS: dict[str, type] = {
     "mock": MockLLM,
     "gemini": GeminiLLM,
     "gauss": GaussLLM,
+    "agentsec": AgentSecLLM,
 }
 
 
-def get_llm() -> MockLLM | GeminiLLM | GaussLLM:
+def get_llm() -> MockLLM | GeminiLLM | GaussLLM | AgentSecLLM:
     name = os.environ.get("AIB_LLM_BACKEND", "mock").lower()
     cls = _BACKENDS.get(name)
     if cls is None:

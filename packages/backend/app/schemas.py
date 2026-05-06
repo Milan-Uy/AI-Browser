@@ -8,6 +8,7 @@ class InteractiveElement(BaseModel):
     text: str
     type: Optional[str] = None
     placeholder: Optional[str] = None
+    value: Optional[str] = None
 
 
 class PageContent(BaseModel):

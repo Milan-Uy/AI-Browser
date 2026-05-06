@@ -3,4 +3,15 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { font-family: ui-sans-serif, system-ui, sans-serif; background-color: #0f172a; color: #f1f5f9; }
+body { font-family: ui-sans-serif, system-ui, sans-serif; background: transparent; color: #1f2937; }
+
+@keyframes blob-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(14px, -10px) scale(1.08); }
+  66%       { transform: translate(-8px, 6px) scale(0.95); }
+}
+@keyframes blob-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(-12px, 8px) scale(1.06); }
+  66%       { transform: translate(8px, -12px) scale(1.09); }
+}

@@ -4,6 +4,7 @@ export interface InteractiveElement {
   text: string;
   type?: string;
   placeholder?: string;
+  value?: string;
 }
 
 export interface PageContent {

@@ -64,85 +64,102 @@ export function ChatPanel() {
     errorText.toLowerCase().includes("network");
 
   return (
-    <div
-      className="h-full flex flex-col"
-      style={{ background: "radial-gradient(ellipse 90% 55% at 0% 100%, #3b82f6 0%, #93c5fd 30%, #ffffff 60%)" }}
-    >
-      <header className="px-4 py-3 flex items-center justify-between">
-        <span className="text-sm font-semibold text-gray-800">AI Browser</span>
-        {messages.length > 0 && (
-          <button
-            type="button"
-            onClick={clear}
-            disabled={pending}
-            className="text-xs text-gray-500 hover:text-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Clear
-          </button>
-        )}
-      </header>
-      <PageContextBadge
-        content={content}
-        loading={loading}
-        included={includePage}
-        onToggle={setIncludePage}
-        onRefresh={refresh}
+    <div className="h-full relative overflow-hidden" style={{ backgroundColor: "#f8f6ff" }}>
+      {/* Animated lower-left blob: blue + cyan */}
+      <div
+        className="absolute -bottom-20 -left-20 w-72 h-72 rounded-full blur-3xl opacity-60 pointer-events-none"
+        style={{
+          background: "radial-gradient(circle, #67e8f9 0%, #3b82f6 45%, #818cf8 100%)",
+          animation: "blob-drift-1 9s ease-in-out infinite",
+        }}
       />
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="flex items-center gap-2">
-              <SparkleIcon />
-              <span className="text-xl font-semibold text-gray-800">AI Browser</span>
+      {/* Animated lower-right blob: purple + light green */}
+      <div
+        className="absolute -bottom-20 -right-20 w-72 h-72 rounded-full blur-3xl opacity-55 pointer-events-none"
+        style={{
+          background: "radial-gradient(circle, #a78bfa 0%, #22d3ee 45%, #86efac 100%)",
+          animation: "blob-drift-2 11s ease-in-out infinite",
+        }}
+      />
+
+      {/* Main layout above blobs */}
+      <div className="h-full flex flex-col relative z-10">
+        <header className="px-4 py-3 flex items-center justify-between">
+          <span className="text-sm font-semibold text-gray-800">AI Browser</span>
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={clear}
+              disabled={pending}
+              className="text-xs text-gray-500 hover:text-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Clear
+            </button>
+          )}
+        </header>
+        <PageContextBadge
+          content={content}
+          loading={loading}
+          included={includePage}
+          onToggle={setIncludePage}
+          onRefresh={refresh}
+        />
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <div className="flex items-center gap-2">
+                <SparkleIcon />
+                <span className="text-xl font-semibold text-gray-800">AI Browser</span>
+              </div>
+            </div>
+          )}
+          {messages.map((m) => (
+            <MessageBubble key={m.id} message={m} />
+          ))}
+        </div>
+        {hasError && (
+          <div className="mx-3 mb-2 px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg border border-red-200">
+            {errorText || "Something went wrong."}
+            {isConnectionError && " Make sure the FastAPI server is running on :8000."}
+          </div>
+        )}
+        <form onSubmit={onSubmit} className="px-3 pb-3 pt-1">
+          <div
+            className="p-[2px] rounded-2xl"
+            style={{ background: "linear-gradient(135deg, #3b82f6, #22c55e)" }}
+          >
+            <div className="flex items-center gap-2 bg-white rounded-2xl px-3 py-2">
+              <input
+                className="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
+                placeholder="Type a message…"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                disabled={pending}
+              />
+              {pending ? (
+                <button
+                  type="button"
+                  onClick={cancel}
+                  className="text-black hover:text-gray-700 flex-shrink-0"
+                  aria-label="Cancel"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <rect width="16" height="16" rx="2" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  className="disabled:cursor-not-allowed"
+                >
+                  <SendIcon active={!!input.trim()} />
+                </button>
+              )}
             </div>
           </div>
-        )}
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
+        </form>
       </div>
-      {hasError && (
-        <div className="mx-3 mb-2 px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg border border-red-200">
-          {errorText || "Something went wrong."}
-          {isConnectionError && " Make sure the FastAPI server is running on :8000."}
-        </div>
-      )}
-      <form onSubmit={onSubmit} className="px-3 pb-3 pt-1">
-        <div
-          className="p-[2px] rounded-2xl"
-          style={{ background: "linear-gradient(135deg, #3b82f6, #22c55e)" }}
-        >
-          <div className="flex items-center gap-2 bg-white rounded-2xl px-3 py-2">
-            <input
-              className="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-400 focus:outline-none"
-              placeholder="Type a message…"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={pending}
-            />
-            {pending ? (
-              <button
-                type="button"
-                onClick={cancel}
-                className="text-black hover:text-gray-700 flex-shrink-0"
-                aria-label="Cancel"
-              >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <rect width="16" height="16" rx="2" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim()}
-                className="disabled:cursor-not-allowed"
-              >
-                <SendIcon active={!!input.trim()} />
-              </button>
-            )}
-          </div>
-        </div>
-      </form>
     </div>
   );
 }

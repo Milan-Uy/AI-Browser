@@ -66,7 +66,7 @@ export function ChatPanel() {
   return (
     <div
       className="h-full flex flex-col"
-      style={{ background: "linear-gradient(to top right, #3b82f6 0%, #93c5fd 50%, #ffffff 100%)" }}
+      style={{ background: "radial-gradient(ellipse 90% 55% at 0% 100%, #3b82f6 0%, #93c5fd 30%, #ffffff 60%)" }}
     >
       <header className="px-4 py-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-gray-800">AI Browser</span>

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { extractPageContent, buildUniqueSelector } from "../page-extractor";
+import { extractPageContent, getIndexedElement } from "../page-extractor";
 
 function setBody(html: string) {
   document.body.innerHTML = html;
@@ -47,57 +47,39 @@ describe("page-extractor", () => {
     expect(c.elements.length).toBe(200);
   });
 
-  it("buildUniqueSelector prefers id when present", () => {
-    setBody(`<button id="my-btn">X</button>`);
-    const btn = document.querySelector("button")!;
-    expect(buildUniqueSelector(btn)).toBe("#my-btn");
+  it("indices are sequential starting at 0", () => {
+    setBody(`<button>A</button><button>B</button><button>C</button>`);
+    const c = extractPageContent();
+    expect(c.elements.map((e) => e.index)).toEqual([0, 1, 2]);
   });
 
-  it("buildUniqueSelector falls back to nth-of-type path", () => {
-    setBody(`<div><button>A</button><button>B</button></div>`);
-    const btns = document.querySelectorAll("button");
-    const sel = buildUniqueSelector(btns[1]!);
-    expect(document.querySelector(sel)).toBe(btns[1]);
+  it("each kept element has matching data-aib-id attribute", () => {
+    setBody(`<button>A</button><input type="text" /><a href="#">Link</a>`);
+    const c = extractPageContent();
+    for (const el of c.elements) {
+      const dom = document.querySelector(`[data-aib-id="${el.index}"]`);
+      expect(dom).not.toBeNull();
+    }
   });
 
-  it("buildUniqueSelector prefers aria-label selector when unique", () => {
-    setBody(`<button aria-label="Price">X</button>`);
-    const btn = document.querySelector("button")!;
-    expect(buildUniqueSelector(btn)).toBe(`button[aria-label='Price']`);
+  it("second extractPageContent() call clears stale data-aib-id attributes", () => {
+    setBody(`<button>A</button>`);
+    extractPageContent();
+    // Remove the button so its data-aib-id is stale after second call
+    document.body.innerHTML = `<input type="text" />`;
+    extractPageContent();
+    // No element should have data-aib-id="0" pointing to old button
+    const stale = document.querySelectorAll("[data-aib-id]");
+    expect(stale.length).toBe(1);
+    expect(stale[0]!.tagName.toLowerCase()).toBe("input");
   });
 
-  it("buildUniqueSelector falls back to positional when aria-label is not unique", () => {
-    setBody(`<button aria-label="Close">A</button><button aria-label="Close">B</button>`);
-    const btn = document.querySelector("button")!;
-    const sel = buildUniqueSelector(btn);
-    expect(sel).not.toContain("aria-label");
-    expect(document.querySelector(sel)).toBe(btn);
-  });
-
-  it("buildUniqueSelector prefers data-testid when unique and no aria-label", () => {
-    setBody(`<button data-testid="price-btn">X</button>`);
-    const btn = document.querySelector("button")!;
-    expect(buildUniqueSelector(btn)).toBe(`[data-testid='price-btn']`);
-  });
-
-  it("buildUniqueSelector uses other data-* attribute when unique", () => {
-    setBody(`<button data-cy="price-btn">X</button>`);
-    const btn = document.querySelector("button")!;
-    expect(buildUniqueSelector(btn)).toBe(`[data-cy='price-btn']`);
-  });
-
-  it("buildUniqueSelector skips data-* values longer than 50 chars", () => {
-    setBody(`<button data-foo="${"a".repeat(51)}">X</button>`);
-    const btn = document.querySelector("button")!;
-    const sel = buildUniqueSelector(btn);
-    expect(sel).not.toContain("data-foo");
-  });
-
-  it("buildUniqueSelector skips data-* values with whitespace", () => {
-    setBody(`<button data-foo="hello world">X</button>`);
-    const btn = document.querySelector("button")!;
-    const sel = buildUniqueSelector(btn);
-    expect(sel).not.toContain("data-foo");
+  it("getIndexedElement returns the element after extractPageContent", () => {
+    setBody(`<button>X</button>`);
+    const c = extractPageContent();
+    const el = getIndexedElement(c.elements[0]!.index);
+    expect(el).not.toBeNull();
+    expect(el?.tagName.toLowerCase()).toBe("button");
   });
 
   it("extracts value attribute for checkbox inputs", () => {
@@ -154,14 +136,5 @@ describe("page-extractor", () => {
     const c = extractPageContent();
     const el = c.elements.find((e) => e.type === "checkbox");
     expect(el?.text).toBe("Under ten thousand");
-  });
-
-  it("buildUniqueSelector falls back to positional when aria-label contains quotes", () => {
-    const btn = document.createElement("button");
-    btn.setAttribute("aria-label", "it's here");
-    document.body.appendChild(btn);
-    const sel = buildUniqueSelector(btn);
-    // happy-dom can't parse escaped quotes in CSS selectors, so it falls back to positional
-    expect(document.querySelector(sel)).toBe(btn);
   });
 });

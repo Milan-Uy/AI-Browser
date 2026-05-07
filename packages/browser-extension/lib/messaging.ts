@@ -1,5 +1,5 @@
 export interface InteractiveElement {
-  selector: string;
+  index: number;
   tag: string;
   text: string;
   type?: string;
@@ -16,11 +16,11 @@ export interface PageContent {
 }
 
 export type LLMAction =
-  | { kind: "click"; selector: string; description?: string }
-  | { kind: "fill"; selector: string; value: string; description?: string }
-  | { kind: "scroll"; selector?: string; direction?: "up" | "down" | "top" | "bottom"; amount?: number; description?: string }
+  | { kind: "click"; index: number; description?: string }
+  | { kind: "fill"; index: number; value: string; description?: string }
+  | { kind: "scroll"; index?: number; direction?: "up" | "down" | "top" | "bottom"; amount?: number; description?: string }
   | { kind: "navigate"; url: string; description?: string }
-  | { kind: "select"; selector: string; value: string; description?: string };
+  | { kind: "select"; index: number; value: string; description?: string };
 
 export interface ActionResult {
   ok: boolean;

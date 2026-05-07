@@ -1,11 +1,6 @@
 import type { LLMAction } from "./messaging";
 
 const ALLOWED_SCHEMES = new Set(["https:", "http:"]);
-const FORBIDDEN_SELECTOR_PATTERNS = [
-  /chrome-extension:\/\//i,
-  /chrome:\/\//i,
-  /^iframe\[src\^="https?:\/\/[^"]+"\]/i,
-];
 
 export interface ValidationResult {
   ok: boolean;
@@ -29,15 +24,8 @@ export function validateAction(action: LLMAction): ValidationResult {
     case "click":
     case "fill":
     case "select":
-    case "scroll": {
-      const sel = "selector" in action ? action.selector : undefined;
-      if (sel) {
-        for (const pat of FORBIDDEN_SELECTOR_PATTERNS) {
-          if (pat.test(sel)) return { ok: false, message: `selector blocked: ${sel}` };
-        }
-      }
+    case "scroll":
       return { ok: true };
-    }
     default:
       return { ok: true };
   }

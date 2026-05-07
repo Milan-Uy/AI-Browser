@@ -1,13 +1,14 @@
 import type { ActionResult, LLMAction } from "./messaging";
+import { getIndexedElement } from "./page-extractor";
 
 export async function executeAction(action: LLMAction): Promise<ActionResult> {
   switch (action.kind) {
     case "click":
-      return doClick(action.selector);
+      return doClick(action.index);
     case "fill":
-      return doFill(action.selector, action.value);
+      return doFill(action.index, action.value);
     case "select":
-      return doSelect(action.selector, action.value);
+      return doSelect(action.index, action.value);
     case "scroll":
       return doScroll(action);
     case "navigate":
@@ -20,89 +21,17 @@ export async function executeAction(action: LLMAction): Promise<ActionResult> {
   }
 }
 
-function normalizePriceText(s: string): string {
-  return s.replace(/₱/g, "P").replace(/,/g, "").toLowerCase().trim();
-}
+export async function resolveByIndex(index: number, timeoutMs = 1500): Promise<HTMLElement | null> {
+  const mapped = getIndexedElement(index);
+  if (mapped && mapped.isConnected) return mapped;
 
-function getLabelText(el: HTMLInputElement): string {
-  if (el.id) {
-    const label = document.querySelector<HTMLLabelElement>(
-      `label[for="${CSS.escape(el.id)}"]`,
-    );
-    if (label) return label.innerText.trim();
-  }
-  return el.closest("label")?.innerText.trim() ?? "";
-}
-
-function findBySemanticFallback(selector: string): HTMLElement | null {
-  const ariaMatch = selector.match(
-    /^([a-z][a-z0-9-]*)?\[aria-label\s*=\s*['"](.+?)['"]\]/i,
-  );
-  if (ariaMatch) {
-    const tag: string = ariaMatch[1] ?? "*";
-    const rawValue = ariaMatch[2];
-    if (rawValue) {
-      const value = rawValue.toLowerCase();
-      const found = Array.from(document.querySelectorAll<HTMLElement>(tag)).find(
-        (el) => el.getAttribute("aria-label")?.toLowerCase() === value,
-      );
-      if (found) return found;
-    }
-  }
-
-  const tagMatch = selector.match(/^([a-z][a-z0-9-]*)/i);
-  const textMatch = selector.match(/['"](.+?)['"]/);
-  const rawTag = tagMatch?.[1];
-  const rawText = textMatch?.[1];
-  if (rawTag && rawText) {
-    const value = rawText.toLowerCase();
-    const found = Array.from(document.querySelectorAll<HTMLElement>(rawTag)).find(
-      (el) => el.innerText?.trim().toLowerCase() === value,
-    );
-    if (found) return found;
-  }
-
-  // Strategy 3: value attribute match (e.g. input[value='Below ₱10,000'])
-  const valueAttrMatch = selector.match(/\[value\s*=\s*['"](.+?)['"]\]/i);
-  if (valueAttrMatch) {
-    const rawValue = valueAttrMatch[1];
-    if (rawValue) {
-      const normalized = normalizePriceText(rawValue);
-      const tagPart = selector.match(/^([a-z][a-z0-9-]*)/i)?.[1] ?? "input";
-      const byAttr = Array.from(document.querySelectorAll<HTMLElement>(tagPart)).find(
-        (el) => normalizePriceText(el.getAttribute("value") ?? "") === normalized,
-      );
-      if (byAttr) return byAttr;
-
-      // Strategy 4: associated label text match (handles checkbox/radio with separate labels)
-      const byLabel = Array.from(document.querySelectorAll<HTMLInputElement>("input")).find(
-        (el) => normalizePriceText(getLabelText(el)) === normalized,
-      );
-      if (byLabel) return byLabel;
-    }
-  }
-
-  return null;
-}
-
-export function waitForElement(selector: string, timeoutMs = 1500): Promise<HTMLElement | null> {
-  let el: HTMLElement | null = null;
-  try {
-    el = document.querySelector<HTMLElement>(selector);
-  } catch {
-    return Promise.resolve(findBySemanticFallback(selector));
-  }
-  if (el) return Promise.resolve(el);
+  const byAttr = document.querySelector<HTMLElement>('[data-aib-id="' + index + '"]');
+  if (byAttr) return byAttr;
 
   return new Promise<HTMLElement | null>((resolve) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const observer = new MutationObserver(() => {
-      let found: HTMLElement | null = null;
-      try {
-        found = document.querySelector<HTMLElement>(selector);
-      } catch {
-        // invalid selector
-      }
+      const found = document.querySelector<HTMLElement>('[data-aib-id="' + index + '"]');
       if (found) {
         observer.disconnect();
         if (timer !== null) clearTimeout(timer);
@@ -113,26 +42,26 @@ export function waitForElement(selector: string, timeoutMs = 1500): Promise<HTML
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["hidden", "aria-hidden", "style", "class"],
+      attributeFilter: ["data-aib-id"],
     });
     timer = setTimeout(() => {
       observer.disconnect();
-      resolve(findBySemanticFallback(selector));
+      resolve(null);
     }, timeoutMs);
   });
 }
 
-async function doClick(selector: string): Promise<ActionResult> {
-  const el = await waitForElement(selector);
-  if (!el) return { ok: false, message: `element not found: ${selector}` };
+async function doClick(index: number): Promise<ActionResult> {
+  const el = await resolveByIndex(index);
+  if (!el) return { ok: false, message: `element not found: index=${index} (likely stale; will re-snapshot next turn)` };
   el.scrollIntoView({ block: "center", inline: "center" });
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
   return { ok: true };
 }
 
-async function doFill(selector: string, value: string): Promise<ActionResult> {
-  const el = await waitForElement(selector);
-  if (!el) return { ok: false, message: `element not found: ${selector}` };
+async function doFill(index: number, value: string): Promise<ActionResult> {
+  const el = await resolveByIndex(index);
+  if (!el) return { ok: false, message: `element not found: index=${index} (likely stale; will re-snapshot next turn)` };
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
     return { ok: false, message: "element is not an input/textarea" };
   }
@@ -147,9 +76,9 @@ async function doFill(selector: string, value: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-async function doSelect(selector: string, value: string): Promise<ActionResult> {
-  const el = await waitForElement(selector);
-  if (!el) return { ok: false, message: `element not found: ${selector}` };
+async function doSelect(index: number, value: string): Promise<ActionResult> {
+  const el = await resolveByIndex(index);
+  if (!el) return { ok: false, message: `element not found: index=${index} (likely stale; will re-snapshot next turn)` };
   if (!(el instanceof HTMLSelectElement)) {
     return { ok: false, message: "element is not a <select>" };
   }
@@ -159,9 +88,9 @@ async function doSelect(selector: string, value: string): Promise<ActionResult> 
 }
 
 async function doScroll(a: Extract<LLMAction, { kind: "scroll" }>): Promise<ActionResult> {
-  if (a.selector) {
-    const el = await waitForElement(a.selector);
-    if (!el) return { ok: false, message: `element not found: ${a.selector}` };
+  if (a.index !== undefined) {
+    const el = await resolveByIndex(a.index);
+    if (!el) return { ok: false, message: `element not found: index=${a.index} (likely stale; will re-snapshot next turn)` };
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     return { ok: true };
   }

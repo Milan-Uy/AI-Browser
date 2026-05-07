@@ -62,17 +62,17 @@ def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord])
     prompt_lines: list[str] = [
         "You are an AI browser assistant. The user gives you a task and you "
         "either answer it directly or perform browser actions to accomplish it.",
-        "Only perform actions using the selectors listed in the Interactive elements section. "
+        "Only perform actions using the indices listed in the Interactive elements section. "
         "If a click reveals a dropdown, menu, or panel with new options, stop after the click "
         "and output DONE: false — you will see the new elements in the next turn.",
         "",
         "To perform a browser action, output a line in this exact format (JSON on one line).",
         'Include a short "description" field with a human-readable label for the element (e.g. "sign in button", "email field"):',
-        '  ACTION: {"kind": "click", "selector": "#submit", "description": "sign in button"}',
-        '  ACTION: {"kind": "fill", "selector": "#email", "value": "user@example.com", "description": "email field"}',
+        '  ACTION: {"kind": "click", "index": 3, "description": "sign in button"}',
+        '  ACTION: {"kind": "fill", "index": 1, "value": "user@example.com", "description": "email field"}',
         '  ACTION: {"kind": "navigate", "url": "https://example.com"}',
         '  ACTION: {"kind": "scroll", "direction": "down", "amount": 300}',
-        '  ACTION: {"kind": "select", "selector": "#dropdown", "value": "option1", "description": "dropdown"}',
+        '  ACTION: {"kind": "select", "index": 7, "value": "option1", "description": "dropdown"}',
         "",
         "At the very end of your response, output exactly one of these lines:",
         "  DONE: true   (task is complete — no further turns needed)",
@@ -91,18 +91,21 @@ def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord])
         page_text = page.text[:3000] + ("\n[...truncated...]" if len(page.text) > 3000 else "")
         prompt_lines += [f"Page text:\n{page_text}", ""]
         if page.elements:
-            prompt_lines.append("Interactive elements (use these selectors for actions):")
+            VOID_TAGS = {"input", "br", "hr", "img", "link", "meta"}
+            prompt_lines.append("Interactive elements (use the [index] in your action):")
             for el in page.elements:
-                parts = [f"selector={el.selector!r}", f"tag={el.tag!r}"]
+                attrs = ""
                 if el.type:
-                    parts.append(f"type={el.type!r}")
+                    attrs += f' type="{el.type}"'
                 if el.placeholder:
-                    parts.append(f"placeholder={el.placeholder!r}")
+                    attrs += f' placeholder="{el.placeholder}"'
                 if el.value:
-                    parts.append(f"value={el.value!r}")
-                if el.text:
-                    parts.append(f"text={el.text!r}")
-                prompt_lines.append("  - " + ", ".join(parts))
+                    attrs += f' value="{el.value}"'
+                if el.tag in VOID_TAGS:
+                    line = f"  [{el.index}]<{el.tag}{attrs} />"
+                else:
+                    line = f"  [{el.index}]<{el.tag}{attrs}>{el.text}</{el.tag}>"
+                prompt_lines.append(line)
             prompt_lines.append("")
 
     if history:

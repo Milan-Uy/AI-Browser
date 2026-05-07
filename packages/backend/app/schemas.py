@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 
 class InteractiveElement(BaseModel):
-    selector: str
+    index: int
     tag: str
     text: str
     type: Optional[str] = None
@@ -21,20 +21,20 @@ class PageContent(BaseModel):
 
 class ClickAction(BaseModel):
     kind: Literal["click"] = "click"
-    selector: str
+    index: int
     description: Optional[str] = None
 
 
 class FillAction(BaseModel):
     kind: Literal["fill"] = "fill"
-    selector: str
+    index: int
     value: str
     description: Optional[str] = None
 
 
 class ScrollAction(BaseModel):
     kind: Literal["scroll"] = "scroll"
-    selector: Optional[str] = None
+    index: Optional[int] = None
     direction: Optional[Literal["up", "down", "top", "bottom"]] = None
     amount: Optional[int] = None
     description: Optional[str] = None
@@ -48,7 +48,7 @@ class NavigateAction(BaseModel):
 
 class SelectAction(BaseModel):
     kind: Literal["select"] = "select"
-    selector: str
+    index: int
     value: str
     description: Optional[str] = None
 

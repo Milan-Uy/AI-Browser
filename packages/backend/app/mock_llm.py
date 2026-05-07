@@ -13,30 +13,30 @@ def _is_login_message(message: str) -> bool:
     return bool(_LOGIN_RE.search(message or ""))
 
 
-def _find_email_field(elements: list) -> Optional[str]:
+def _find_email_field(elements: list) -> Optional[int]:
     for e in elements:
         if e.type == "email":
-            return e.selector
+            return e.index
         if e.tag == "input" and re.search(r"email|user", (e.placeholder or "") + (e.text or ""), re.I):
-            return e.selector
+            return e.index
     return None
 
 
-def _find_password_field(elements: list) -> Optional[str]:
+def _find_password_field(elements: list) -> Optional[int]:
     for e in elements:
         if e.type == "password":
-            return e.selector
+            return e.index
     return None
 
 
-def _find_submit_button(elements: list) -> Optional[str]:
+def _find_submit_button(elements: list) -> Optional[int]:
     for e in elements:
         if e.tag in ("button", "input") and re.search(r"log\s*in|sign\s*in|submit", e.text or "", re.I):
-            return e.selector
+            return e.index
     # fallback: any button
     for e in elements:
         if e.tag in ("button", "a"):
-            return e.selector
+            return e.index
     return None
 
 
@@ -48,11 +48,11 @@ async def mock_stream(message: str, page: Optional[PageContent], turn: int = 0) 
             yield json.dumps({"type": "text", "content": "Type \"login\" to have me fill in the demo credentials. "})
             yield json.dumps({"type": "done", "completed": True})
             return
-        selector = _find_email_field(elements)
-        if selector:
+        index = _find_email_field(elements)
+        if index is not None:
             yield json.dumps({"type": "text", "content": "Filling in the email/username field. "})
             await asyncio.sleep(0.05)
-            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "test", "description": "email/username field"}})
+            yield json.dumps({"type": "action", "action": {"kind": "fill", "index": index, "value": "test", "description": "email/username field"}})
             await asyncio.sleep(0.05)
             yield json.dumps({"type": "done", "completed": False})
         else:
@@ -60,11 +60,11 @@ async def mock_stream(message: str, page: Optional[PageContent], turn: int = 0) 
             yield json.dumps({"type": "done", "completed": True})
 
     elif turn == 1:
-        selector = _find_password_field(elements)
-        if selector:
+        index = _find_password_field(elements)
+        if index is not None:
             yield json.dumps({"type": "text", "content": "Filling in the password field. "})
             await asyncio.sleep(0.05)
-            yield json.dumps({"type": "action", "action": {"kind": "fill", "selector": selector, "value": "test", "description": "password field"}})
+            yield json.dumps({"type": "action", "action": {"kind": "fill", "index": index, "value": "test", "description": "password field"}})
             await asyncio.sleep(0.05)
             yield json.dumps({"type": "done", "completed": False})
         else:
@@ -72,11 +72,11 @@ async def mock_stream(message: str, page: Optional[PageContent], turn: int = 0) 
             yield json.dumps({"type": "done", "completed": True})
 
     elif turn == 2:
-        selector = _find_submit_button(elements)
-        if selector:
+        index = _find_submit_button(elements)
+        if index is not None:
             yield json.dumps({"type": "text", "content": "Clicking the submit button. "})
             await asyncio.sleep(0.05)
-            yield json.dumps({"type": "action", "action": {"kind": "click", "selector": selector, "description": "submit button"}})
+            yield json.dumps({"type": "action", "action": {"kind": "click", "index": index, "description": "submit button"}})
             await asyncio.sleep(0.05)
             yield json.dumps({"type": "done", "completed": True})
         else:

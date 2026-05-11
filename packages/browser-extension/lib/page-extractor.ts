@@ -1,8 +1,8 @@
 import type { InteractiveElement, PageContent } from "./messaging";
+import { INTERACTIVE_SELECTOR, getRole, getAccessibleName } from "./a11y";
 
 const TEXT_LIMIT = 8000;
 const ELEMENT_LIMIT = 200;
-const INTERACTIVE_SELECTOR = 'a, button, input, select, textarea, [role="button"]';
 
 let elementIndex = new Map<number, HTMLElement>();
 
@@ -66,5 +66,9 @@ function describeElement(el: HTMLElement, index: number): InteractiveElement | n
       }
     }
   }
+  const role = getRole(el);
+  if (role) info.role = role;
+  const name = getAccessibleName(el);
+  if (name) info.name = name;
   return info;
 }

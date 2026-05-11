@@ -68,11 +68,12 @@ def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord])
         "",
         "To perform a browser action, output a line in this exact format (JSON on one line).",
         'Include a short "description" field with a human-readable label for the element (e.g. "sign in button", "email field"):',
-        '  ACTION: {"kind": "click", "index": 3, "description": "sign in button"}',
-        '  ACTION: {"kind": "fill", "index": 1, "value": "user@example.com", "description": "email field"}',
+        '  ACTION: {"kind": "click", "index": 3, "role": "button", "name": "Sign in", "description": "sign in button"}',
+        '  ACTION: {"kind": "fill", "index": 1, "role": "textbox", "name": "Email", "value": "user@example.com", "description": "email field"}',
         '  ACTION: {"kind": "navigate", "url": "https://example.com"}',
         '  ACTION: {"kind": "scroll", "direction": "down", "amount": 300}',
-        '  ACTION: {"kind": "select", "index": 7, "value": "option1", "description": "dropdown"}',
+        '  ACTION: {"kind": "select", "index": 7, "role": "combobox", "name": "Country", "value": "option1", "description": "dropdown"}',
+        "Always include role and name from the element list in your actions — they are used as a fallback when the index becomes stale.",
         "",
         "At the very end of your response, output exactly one of these lines:",
         "  DONE: true   (task is complete — no further turns needed)",
@@ -101,6 +102,10 @@ def _build_system_prompt(page: Optional[PageContent], history: List[TurnRecord])
                     attrs += f' placeholder="{el.placeholder}"'
                 if el.value:
                     attrs += f' value="{el.value}"'
+                if el.role:
+                    attrs += f' role="{el.role}"'
+                if el.name:
+                    attrs += f' name="{el.name}"'
                 if el.tag in VOID_TAGS:
                     line = f"  [{el.index}]<{el.tag}{attrs} />"
                 else:

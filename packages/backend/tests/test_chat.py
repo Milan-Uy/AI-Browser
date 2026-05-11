@@ -10,9 +10,9 @@ LOGIN_PAGE = {
     "title": "Login",
     "text": "Please log in",
     "elements": [
-        {"index": 0, "tag": "input", "text": "", "type": "email", "placeholder": "Email"},
-        {"index": 1, "tag": "input", "text": "", "type": "password", "placeholder": "Password"},
-        {"index": 2, "tag": "button", "text": "Log In"},
+        {"index": 0, "tag": "input", "text": "", "type": "email", "placeholder": "Email", "role": "textbox", "name": "Email"},
+        {"index": 1, "tag": "input", "text": "", "type": "password", "placeholder": "Password", "role": "textbox", "name": "Password"},
+        {"index": 2, "tag": "button", "text": "Log In", "role": "button", "name": "Log In"},
     ],
 }
 
@@ -49,6 +49,8 @@ async def test_chat_with_page_emits_fill_on_turn0() -> None:
     assert actions[0]["action"]["kind"] == "fill"
     assert actions[0]["action"]["index"] == 0
     assert actions[0]["action"]["value"] == "test"
+    assert actions[0]["action"]["role"] == "textbox"
+    assert actions[0]["action"]["name"] == "Email"
     done = parsed[-1]
     assert done["type"] == "done"
     assert done["completed"] is False
@@ -440,3 +442,21 @@ async def test_gauss_backend_requires_env_vars(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(ValueError, match="AIB_GAUSS_API_URL"):
         await GaussLLM().stream("hi", None, [])
+
+
+def test_build_system_prompt_renders_role_and_name() -> None:
+    """_build_system_prompt includes role and name attrs when present on an element."""
+    from app.llm import _build_system_prompt
+    from app.schemas import InteractiveElement, PageContent
+
+    page = PageContent(
+        url="https://example.com/login",
+        title="Login",
+        text="Please log in",
+        elements=[
+            InteractiveElement(index=0, tag="input", text="", type="email", placeholder="Email", role="textbox", name="Email"),
+        ],
+    )
+    prompt = _build_system_prompt(page, [])
+    assert 'role="textbox"' in prompt
+    assert 'name="Email"' in prompt

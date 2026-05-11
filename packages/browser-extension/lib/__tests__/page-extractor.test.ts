@@ -137,4 +137,45 @@ describe("page-extractor", () => {
     const el = c.elements.find((e) => e.type === "checkbox");
     expect(el?.text).toBe("Under ten thousand");
   });
+
+  // Role + accessible name tests (Recommendation #2)
+  it("button with aria-label emits role='button' and name='Save'", () => {
+    setBody(`<button aria-label="Save"></button>`);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.tag === "button");
+    expect(el?.role).toBe("button");
+    expect(el?.name).toBe("Save");
+  });
+
+  it("link emits role='link' and name='Home'", () => {
+    setBody(`<a href="/x">Home</a>`);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.tag === "a");
+    expect(el?.role).toBe("link");
+    expect(el?.name).toBe("Home");
+  });
+
+  it("input associated with label emits role='textbox' and name='Email'", () => {
+    setBody(`<label for="email">Email</label><input id="email" type="text">`);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.tag === "input");
+    expect(el?.role).toBe("textbox");
+    expect(el?.name).toBe("Email");
+  });
+
+  it("button with explicit role='menuitem' and aria-label emits overridden role and name", () => {
+    setBody(`<button role="menuitem" aria-label="Profile">Profile</button>`);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.tag === "button");
+    expect(el?.role).toBe("menuitem");
+    expect(el?.name).toBe("Profile");
+  });
+
+  it("icon-only button with no accessible label has no name field", () => {
+    setBody(`<button><svg></svg></button>`);
+    const c = extractPageContent();
+    const el = c.elements.find((e) => e.tag === "button");
+    expect(el).toBeDefined();
+    expect(el?.name).toBeUndefined();
+  });
 });

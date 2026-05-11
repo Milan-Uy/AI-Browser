@@ -5,6 +5,8 @@ export interface InteractiveElement {
   type?: string;
   placeholder?: string;
   value?: string;
+  role?: string;
+  name?: string;
 }
 
 export interface PageContent {
@@ -16,11 +18,11 @@ export interface PageContent {
 }
 
 export type LLMAction =
-  | { kind: "click"; index: number; description?: string }
-  | { kind: "fill"; index: number; value: string; description?: string }
-  | { kind: "scroll"; index?: number; direction?: "up" | "down" | "top" | "bottom"; amount?: number; description?: string }
+  | { kind: "click"; index: number; role?: string; name?: string; description?: string }
+  | { kind: "fill"; index: number; value: string; role?: string; name?: string; description?: string }
+  | { kind: "scroll"; index?: number; direction?: "up" | "down" | "top" | "bottom"; amount?: number; role?: string; name?: string; description?: string }
   | { kind: "navigate"; url: string; description?: string }
-  | { kind: "select"; index: number; value: string; description?: string };
+  | { kind: "select"; index: number; value: string; role?: string; name?: string; description?: string };
 
 export interface ActionResult {
   ok: boolean;

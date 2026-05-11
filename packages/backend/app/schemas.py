@@ -9,6 +9,8 @@ class InteractiveElement(BaseModel):
     type: Optional[str] = None
     placeholder: Optional[str] = None
     value: Optional[str] = None
+    role: Optional[str] = None
+    name: Optional[str] = None
 
 
 class PageContent(BaseModel):
@@ -22,6 +24,8 @@ class PageContent(BaseModel):
 class ClickAction(BaseModel):
     kind: Literal["click"] = "click"
     index: int
+    role: Optional[str] = None
+    name: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -29,6 +33,8 @@ class FillAction(BaseModel):
     kind: Literal["fill"] = "fill"
     index: int
     value: str
+    role: Optional[str] = None
+    name: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -37,6 +43,8 @@ class ScrollAction(BaseModel):
     index: Optional[int] = None
     direction: Optional[Literal["up", "down", "top", "bottom"]] = None
     amount: Optional[int] = None
+    role: Optional[str] = None
+    name: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -50,6 +58,8 @@ class SelectAction(BaseModel):
     kind: Literal["select"] = "select"
     index: int
     value: str
+    role: Optional[str] = None
+    name: Optional[str] = None
     description: Optional[str] = None
 
 

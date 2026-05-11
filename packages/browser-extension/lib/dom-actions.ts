@@ -1,14 +1,15 @@
 import type { ActionResult, LLMAction } from "./messaging";
 import { getIndexedElement } from "./page-extractor";
+import { INTERACTIVE_SELECTOR, getRole, getAccessibleName } from "./a11y";
 
 export async function executeAction(action: LLMAction): Promise<ActionResult> {
   switch (action.kind) {
     case "click":
-      return doClick(action.index);
+      return doClick(action);
     case "fill":
-      return doFill(action.index, action.value);
+      return doFill(action);
     case "select":
-      return doSelect(action.index, action.value);
+      return doSelect(action);
     case "scroll":
       return doScroll(action);
     case "navigate":
@@ -51,17 +52,43 @@ export async function resolveByIndex(index: number, timeoutMs = 1500): Promise<H
   });
 }
 
-async function doClick(index: number): Promise<ActionResult> {
-  const el = await resolveByIndex(index);
-  if (!el) return { ok: false, message: `element not found: index=${index} (likely stale; will re-snapshot next turn)` };
+export function findByRoleAndName(role: string, name: string): HTMLElement | null {
+  const normalRole = role.trim().toLowerCase();
+  const normalName = name.trim().toLowerCase();
+  const candidates = document.querySelectorAll<HTMLElement>(INTERACTIVE_SELECTOR);
+  for (const el of candidates) {
+    if (getRole(el).toLowerCase() === normalRole && getAccessibleName(el).trim().toLowerCase() === normalName) {
+      return el;
+    }
+  }
+  return null;
+}
+
+export async function resolveTarget(
+  action: { index?: number; role?: string; name?: string },
+  timeoutMs = 1500,
+): Promise<HTMLElement | null> {
+  if (action.index !== undefined) {
+    const el = await resolveByIndex(action.index, timeoutMs);
+    if (el && el.isConnected) return el;
+  }
+  if (action.role && action.name) {
+    return findByRoleAndName(action.role, action.name);
+  }
+  return null;
+}
+
+async function doClick(a: Extract<LLMAction, { kind: "click" }>): Promise<ActionResult> {
+  const el = await resolveTarget(a);
+  if (!el) return { ok: false, message: `element not found: index=${a.index} role=${a.role ?? "?"} name=${JSON.stringify(a.name ?? "")} (likely stale; will re-snapshot next turn)` };
   el.scrollIntoView({ block: "center", inline: "center" });
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
   return { ok: true };
 }
 
-async function doFill(index: number, value: string): Promise<ActionResult> {
-  const el = await resolveByIndex(index);
-  if (!el) return { ok: false, message: `element not found: index=${index} (likely stale; will re-snapshot next turn)` };
+async function doFill(a: Extract<LLMAction, { kind: "fill" }>): Promise<ActionResult> {
+  const el = await resolveTarget(a);
+  if (!el) return { ok: false, message: `element not found: index=${a.index} role=${a.role ?? "?"} name=${JSON.stringify(a.name ?? "")} (likely stale; will re-snapshot next turn)` };
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
     return { ok: false, message: "element is not an input/textarea" };
   }
@@ -69,28 +96,28 @@ async function doFill(index: number, value: string): Promise<ActionResult> {
     el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
     "value",
   )?.set;
-  if (setter) setter.call(el, value);
-  else el.value = value;
+  if (setter) setter.call(el, a.value);
+  else el.value = a.value;
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { ok: true };
 }
 
-async function doSelect(index: number, value: string): Promise<ActionResult> {
-  const el = await resolveByIndex(index);
-  if (!el) return { ok: false, message: `element not found: index=${index} (likely stale; will re-snapshot next turn)` };
+async function doSelect(a: Extract<LLMAction, { kind: "select" }>): Promise<ActionResult> {
+  const el = await resolveTarget(a);
+  if (!el) return { ok: false, message: `element not found: index=${a.index} role=${a.role ?? "?"} name=${JSON.stringify(a.name ?? "")} (likely stale; will re-snapshot next turn)` };
   if (!(el instanceof HTMLSelectElement)) {
     return { ok: false, message: "element is not a <select>" };
   }
-  el.value = value;
+  el.value = a.value;
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { ok: true };
 }
 
 async function doScroll(a: Extract<LLMAction, { kind: "scroll" }>): Promise<ActionResult> {
   if (a.index !== undefined) {
-    const el = await resolveByIndex(a.index);
-    if (!el) return { ok: false, message: `element not found: index=${a.index} (likely stale; will re-snapshot next turn)` };
+    const el = await resolveTarget(a);
+    if (!el) return { ok: false, message: `element not found: index=${a.index} role=${a.role ?? "?"} name=${JSON.stringify(a.name ?? "")} (likely stale; will re-snapshot next turn)` };
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     return { ok: true };
   }

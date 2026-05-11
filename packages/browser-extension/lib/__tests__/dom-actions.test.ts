@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { executeAction, resolveByIndex } from "../dom-actions";
+import { executeAction, resolveByIndex, findByRoleAndName } from "../dom-actions";
 import { extractPageContent, getIndexedElement } from "../page-extractor";
 
 describe("dom-actions.executeAction", () => {
@@ -87,5 +87,45 @@ describe("dom-actions.executeAction", () => {
     // Now the map has been cleared by the second extractPageContent but attr still present
     const el = await resolveByIndex(0);
     expect(el).not.toBeNull();
+  });
+
+  // Role + name fallback tests (Recommendation #2)
+  it("role+name resolves element when index map is empty and data-aib-id removed", async () => {
+    document.body.innerHTML = `<button aria-label="Save">Save</button>`;
+    extractPageContent();
+    const btn = document.querySelector("button")!;
+    // Strip data-aib-id so index-path attribute lookup also fails
+    btn.removeAttribute("data-aib-id");
+    // Execute with a stale index but valid role+name
+    const res = await executeAction({ kind: "click", index: 99, role: "button", name: "Save" });
+    expect(res.ok).toBe(true);
+  });
+
+  it("index path still works when data-aib-id attribute survives", async () => {
+    document.body.innerHTML = `<button aria-label="Save">Save</button>`;
+    extractPageContent();
+    // data-aib-id is still on the element, index=0 resolves via attribute
+    const res = await executeAction({ kind: "click", index: 0, role: "button", name: "Save" });
+    expect(res.ok).toBe(true);
+  });
+
+  it("returns ok:false with index= and role= in message when both paths fail", async () => {
+    document.body.innerHTML = "";
+    extractPageContent();
+    const res = await executeAction({ kind: "click", index: 99, role: "button", name: "DoesNotExist" });
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/index=/);
+    expect(res.message).toMatch(/role=/);
+  });
+
+  it("role+name omitted: behaves identically to index-only path", async () => {
+    document.body.innerHTML = `<button>Go</button>`;
+    extractPageContent();
+    const btn = document.querySelector("button")!;
+    const spy = { called: false };
+    btn.addEventListener("click", () => { spy.called = true; });
+    const res = await executeAction({ kind: "click", index: 0 });
+    expect(res.ok).toBe(true);
+    expect(spy.called).toBe(true);
   });
 });
